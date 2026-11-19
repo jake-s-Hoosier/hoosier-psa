@@ -1,10 +1,11 @@
 # 08. Security
 
-> **Implementation status (milestone 0).** In place: database-level audit trail, immutable migrations,
-> input validation, parameterised SQL, problem+json errors, production refusal of dev auth. Specified
-> here and delivered in milestone 1: Entra sign-in and sessions, per-route permission enforcement,
-> separate database roles, rate limiting and CSRF header checks. Later milestones: portal
-> authentication and payment handling.
+> **Implementation status.** In place: database-level audit trail, immutable migrations, input
+> validation, parameterised SQL, problem+json errors, production refusal of dev auth, local
+> password + TOTP sign-in with signed sessions, CSRF header, sign-in throttling and the admin CLI
+> ([ADR 0010](adr/0010-local-authentication.md)). Still to come: per-route permission enforcement
+> and role administration, separate database roles, per-route rate limiting. Later milestones:
+> portal authentication and payment handling.
 
 ## Threat model in brief
 
@@ -15,15 +16,24 @@ data. Hoosier Security is a security integrator; customers expect its own system
 
 ## Authentication
 
-- Staff sign in with **Microsoft Entra ID** using the OIDC authorization-code flow with PKCE, from a
-  confidential server-side client ([ADR 0005](adr/0005-entra-sso.md)). There are no local passwords.
-- MFA and conditional access are enforced in Entra, not re-implemented here.
-- The API issues an opaque session in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie; sessions have idle
-  and absolute timeouts and are revocable server-side.
-- A member must exist in `iam.member` and be active; sign-in alone grants nothing. Deactivating a member
-  ends their sessions.
-- `AUTH_MODE=dev` (trusts a header) exists only for local development and the API refuses to start with it
-  when `NODE_ENV=production`.
+Staff sign in with a local password and an authenticator-app code ([ADR 0010](adr/0010-local-authentication.md)).
+
+- Accounts are created by an administrator with `pnpm auth set-password <identifier>`, which prints a
+  one-time temporary password. First sign-in forces a new password (12+ characters, not common, not
+  containing name or email) and authenticator enrolment, then shows ten single-use recovery codes.
+- Passwords: scrypt with per-password salt. MFA secrets: AES-256-GCM, key derived from `AUTH_SECRET`.
+  Used codes cannot be replayed. Recovery codes are stored hashed.
+- Sessions are signed cookies (`HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS). Every request re-checks
+  that the member is active and the session epoch matches, so a password change, admin reset or
+  deactivation ends sessions at once. Idle timeout 2 hours; absolute 12 hours.
+- State-changing requests need the `x-requested-with: hoosier-psa` header. Five failed sign-ins lock the
+  account (and 30 lock an address) for 15 minutes.
+- `iam.member_credential` is not audited, so hashes and secrets never reach `sys.audit_log`; security
+  events are in `iam.auth_event`.
+- Operations: `pnpm auth set-password <id>`, `pnpm auth reset-mfa <id>`, `pnpm auth status`. They honour the
+  environment marker and production go-live lock. Lost authenticator: reset MFA, member enrols again.
+- `AUTH_MODE=dev` (trusts a header) exists only for local development and tests; the API refuses to start
+  with it when `NODE_ENV` or `APP_ENV` is production.
 - Customer portal authentication (milestone 5) is separate: email-verified one-time links or codes, scoped to
   the contacts of one company. It never shares sessions or code paths with staff authentication.
 

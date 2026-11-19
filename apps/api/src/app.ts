@@ -1,10 +1,30 @@
 import type { Pool } from "@hoosier/db";
 import Fastify, { type FastifyInstance } from "fastify";
+import {
+  ABSOLUTE_MS,
+  type AuthStage,
+  COOKIE_NAME,
+  CSRF_HEADER,
+  CSRF_VALUE,
+  IDLE_MS,
+  clearSessionCookie,
+  loadAuthMember,
+  readCookie,
+  setSessionCookie,
+  stageOf,
+  verifySession,
+} from "./auth/session.js";
 import type { Config } from "./config.js";
 import { HttpError, errorHandler } from "./errors.js";
+import { authRoutes } from "./routes/auth.js";
 import { companyRoutes } from "./routes/companies.js";
 import { healthRoutes } from "./routes/health.js";
+import { lookupRoutes } from "./routes/lookups.js";
+import { payPeriodRoutes } from "./routes/pay-periods.js";
 import { systemRoutes } from "./routes/system.js";
+import { ticketRoutes } from "./routes/tickets.js";
+import { timeRoutes } from "./routes/time.js";
+import { timesheetRoutes } from "./routes/timesheets.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -18,10 +38,19 @@ declare module "fastify" {
 
 export interface AppDeps {
   pool: Pool;
-  config: Pick<Config, "AUTH_MODE" | "LOG_LEVEL" | "APP_ENV" | "DB_WRITE_MODE">;
+  config: Pick<Config, "AUTH_MODE" | "LOG_LEVEL" | "APP_ENV" | "DB_WRITE_MODE"> & {
+    AUTH_SECRET?: string | undefined;
+  };
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+/** Reachable without being signed in. */
+const PUBLIC_PATH =
+  /^\/(healthz|readyz|api\/v1\/system\/status|api\/v1\/auth\/(login|logout))(\?|$)/;
+/** Reachable part-way through sign-in (password entered, second factor or setup still to do). */
+const SIGN_IN_PATH = /^\/api\/v1\/auth\//;
+/** Writes that are allowed even in read-only mode because they change no business data. */
+const READ_ONLY_EXEMPT = /^\/api\/v1\/auth\/(login|logout|mfa\/verify)(\?|$)/;
 
 export function buildApp({ pool, config }: AppDeps): FastifyInstance {
   const app = Fastify({
@@ -31,6 +60,8 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
 
   app.decorate("pool", pool);
   app.decorateRequest("memberId", null);
+  app.decorateRequest("authStage", null);
+  app.decorateRequest("authMfa", false);
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler((_req, reply) => {
     void reply
@@ -39,21 +70,72 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
       .send({ type: "about:blank", title: "Not Found", status: 404 });
   });
 
-  // Authentication. AUTH_MODE=dev is a placeholder until Entra sign-in (see config.ts).
-  app.addHook("onRequest", async (req) => {
-    if (req.url.startsWith("/healthz") || req.url.startsWith("/readyz")) return;
-    const raw = req.headers["x-dev-member-id"];
-    const id = Number(Array.isArray(raw) ? raw[0] : raw);
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new HttpError(401, "Unauthorized", "Missing or invalid credentials");
+  // Authentication.
+  //  - session: signed cookie from /api/v1/auth/login, re-checked against the database on every request
+  //    (member still active, session epoch unchanged, second factor done).
+  //  - dev: local development and tests; trusts x-dev-member-id; refused in production by loadConfig.
+  const authSecret = config.AUTH_SECRET;
+  app.addHook("onRequest", async (req, reply) => {
+    const isPublic = PUBLIC_PATH.test(req.url);
+    if (config.AUTH_MODE === "dev") {
+      if (isPublic) return;
+      const raw = req.headers["x-dev-member-id"];
+      const id = Number(Array.isArray(raw) ? raw[0] : raw);
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new HttpError(401, "Unauthorized", "Missing or invalid credentials");
+      }
+      req.memberId = id;
+      req.authStage = "ok";
+      req.authMfa = true;
+      return;
     }
-    req.memberId = id;
+    if (!authSecret) throw new Error("AUTH_SECRET missing");
+
+    // Cookies are sent by browsers automatically, so state-changing requests must carry a header a
+    // cross-site form cannot set (on top of SameSite=Lax).
+    if (!SAFE_METHODS.has(req.method) && req.headers[CSRF_HEADER] !== CSRF_VALUE) {
+      throw new HttpError(403, "Missing header", `Send the ${CSRF_HEADER} header`);
+    }
+    if (isPublic) return;
+
+    const token = readCookie(req.headers.cookie, COOKIE_NAME);
+    const claims = token ? verifySession(token, authSecret) : null;
+    const now = Date.now();
+    if (!claims || claims.exp <= now || now - claims.seen > IDLE_MS) {
+      if (token) clearSessionCookie(req, reply);
+      throw new HttpError(401, "Unauthorized", "Sign in required");
+    }
+    const member = await loadAuthMember(app.pool, claims.m);
+    if (!member || !member.isActive || member.epoch !== claims.e) {
+      clearSessionCookie(req, reply);
+      throw new HttpError(401, "Unauthorized", "Sign in required");
+    }
+    const stage: AuthStage = stageOf(member, claims.mfa);
+    if (stage !== "ok" && !SIGN_IN_PATH.test(req.url)) {
+      throw new HttpError(403, "Sign-in incomplete", `Next step: ${stage}`);
+    }
+    req.memberId = member.id;
+    req.authStage = stage;
+    req.authMfa = claims.mfa;
+    // Sliding idle timeout: re-issue while active, never beyond the absolute limit.
+    if (stage === "ok" && now - claims.seen > 60_000) {
+      setSessionCookie(
+        req,
+        reply,
+        { ...claims, seen: now, exp: Math.min(claims.iat + ABSOLUTE_MS, claims.exp) },
+        authSecret,
+      );
+    }
   });
 
   // First line of write protection: in read-only mode no mutating request reaches a handler.
   // The database pool is read-only as well (createPool), so this is a clear message, not the only guard.
   app.addHook("onRequest", async (req) => {
-    if (config.DB_WRITE_MODE === "read_only" && !SAFE_METHODS.has(req.method)) {
+    if (
+      config.DB_WRITE_MODE === "read_only" &&
+      !SAFE_METHODS.has(req.method) &&
+      !READ_ONLY_EXEMPT.test(req.url)
+    ) {
       throw new HttpError(
         403,
         "Read-only mode",
@@ -68,6 +150,18 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
     appEnv: config.APP_ENV,
     writeMode: config.DB_WRITE_MODE,
   });
+  if (config.AUTH_MODE === "session" && authSecret) {
+    app.register(authRoutes, {
+      prefix: "/api/v1/auth",
+      authSecret,
+      writable: config.DB_WRITE_MODE === "read_write",
+    });
+  }
   app.register(companyRoutes, { prefix: "/api/v1/companies" });
+  app.register(lookupRoutes, { prefix: "/api/v1/lookups" });
+  app.register(ticketRoutes, { prefix: "/api/v1/tickets" });
+  app.register(timeRoutes, { prefix: "/api/v1/time-entries" });
+  app.register(timesheetRoutes, { prefix: "/api/v1/timesheets" });
+  app.register(payPeriodRoutes, { prefix: "/api/v1/pay-periods" });
   return app;
 }

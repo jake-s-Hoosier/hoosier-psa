@@ -117,6 +117,22 @@ describe("config", () => {
     );
   });
 
+  it("needs a strong AUTH_SECRET for real sign-in and rejects the old entra mode", () => {
+    expect(() => loadConfig({ ...base, AUTH_MODE: "session" })).toThrow(/AUTH_SECRET/);
+    expect(() => loadConfig({ ...base, AUTH_MODE: "session", AUTH_SECRET: "short" })).toThrow(
+      /AUTH_SECRET/,
+    );
+    expect(() => loadConfig({ ...base, AUTH_MODE: "entra" })).toThrow(/AUTH_MODE/);
+    const c = loadConfig({
+      ...base,
+      NODE_ENV: "production",
+      APP_ENV: "production",
+      AUTH_MODE: "session",
+      AUTH_SECRET: "s".repeat(32),
+    });
+    expect(c.AUTH_MODE).toBe("session");
+  });
+
   it("never lets the API write in shadow", () => {
     expect(() => loadConfig({ ...base, APP_ENV: "shadow", DB_WRITE_MODE: "read_write" })).toThrow(
       /shadow/,

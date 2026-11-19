@@ -24,10 +24,12 @@ const envSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   /**
-   * 'dev' trusts an x-dev-member-id header and exists only until Entra sign-in lands (milestone 1,
-   * docs/07-roadmap.md). It is refused in production.
+   * 'session' is real sign-in: local password plus TOTP (docs/adr/0010-local-authentication.md).
+   * 'dev' trusts an x-dev-member-id header for local development and tests, and is refused in production.
    */
-  AUTH_MODE: z.enum(["dev", "entra"]).default("dev"),
+  AUTH_MODE: z.enum(["dev", "session"]).default("dev"),
+  /** Signs session cookies and encrypts MFA secrets. At least 32 characters; rotating it signs everyone out. */
+  AUTH_SECRET: z.string().min(32).optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;
@@ -45,8 +47,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   ) {
     throw new Error("AUTH_MODE=dev is not allowed in production");
   }
-  if (config.AUTH_MODE === "entra") {
-    throw new Error("AUTH_MODE=entra is not implemented yet");
+  if (config.AUTH_MODE === "session" && !config.AUTH_SECRET) {
+    throw new Error("AUTH_SECRET (at least 32 characters) is required when AUTH_MODE=session");
   }
   if (config.APP_ENV === "shadow" && config.DB_WRITE_MODE === "read_write") {
     throw new Error(

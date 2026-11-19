@@ -38,7 +38,7 @@ Milestones are defined in [07-roadmap.md](07-roadmap.md).
 | Project post-mortems | post_mortems 1,461 + 7 detail tables | Native project close-out analytics | M3 | planned |
 | Email-to-ticket | n/a | Inbound mailbox via Microsoft Graph | M1 | planned |
 | Reporting | many ad-hoc SQL reports on the mirror | Keep SQL reporting on Postgres; add curated views | M1+ | planned |
-| Members and security roles | members 79 | `iam.*`; Entra sign-in | M1 | schema |
+| Members and security roles | members 79 | `iam.*`; local sign-in with MFA | M1 | schema |
 
 ## Known ConnectWise quirks we deliberately do not copy
 

@@ -15,7 +15,7 @@ validation; web shell; documentation set and ADRs.
 
 ## M1. Operations core: CRM, tickets, time (about 4-6 weeks)
 
-- Microsoft Entra sign-in; permission enforcement on every route; role administration UI.
+- Local sign-in (password + authenticator code, done); permission enforcement on every route; role administration UI.
 - **CW import tool** (re-runnable, id-preserving): members, lookups, companies, sites, contacts and channels,
   catalog, boards and statuses, tickets, ticket notes, time entries. Shadow environment refreshed nightly ([11](11-cw-migration.md)).
 - CRM: company, site and contact CRUD, search (name, phone, email), notes and alerts, caller lookup by E.164 number.

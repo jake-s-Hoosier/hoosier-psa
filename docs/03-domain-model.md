@@ -39,7 +39,7 @@ erDiagram
 ```
 
 ### `iam` (migrated)
-`member` (staff, Entra subject, loaded labor cost, field-tech flag), `role`, `permission`,
+`member` (staff, loaded labor cost, field-tech flag; credentials in `member_credential`), `role`, `permission`,
 `role_permission`, `member_role`. Permission keys live in `packages/shared/src/permissions.ts`.
 
 ### `crm` (migrated)

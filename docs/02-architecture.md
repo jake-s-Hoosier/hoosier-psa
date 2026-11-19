@@ -18,7 +18,7 @@ flowchart LR
   end
   CF[Cloudflare tunnel]
   QB[QuickBooks Desktop<br/>HSIN-QB01]
-  ENTRA[Microsoft Entra ID<br/>+ Graph mail/calendar]
+  MAIL[Email provider<br/>inbound tickets, notices: to decide]
   PAY[Stripe / WisePay /<br/>Global Payments]
   CW[ConnectWise<br/>until cutover]
 
@@ -27,7 +27,7 @@ flowchart LR
   C -.-> CF
   W --> A --> DB
   J --> DB
-  A <--> ENTRA
+  A <--> MAIL
   J <--> QB
   J <--> PAY
   CW --> MIR --> J

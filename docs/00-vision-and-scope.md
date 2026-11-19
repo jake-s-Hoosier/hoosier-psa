@@ -51,7 +51,7 @@ with response commitments, and tight margin tracking against vendor costs.
 
 - Hosted on HSIN-UT01 (Windows, PM2, Cloudflare tunnel) with PostgreSQL 16; QuickBooks Desktop on
   HSIN-QB01. These are inputs, not choices ([architecture](02-architecture.md)).
-- Microsoft 365 is the identity provider ([ADR 0005](adr/0005-entra-sso.md)).
+- Staff authenticate with local passwords and an authenticator code; the PSA does not depend on Microsoft Entra ([ADR 0010](adr/0010-local-authentication.md)).
 - Payroll rules: semi-monthly periods (1st-15th, 16th-end), Sunday-Saturday workweeks, overtime
   after 40 worked hours ([time and payroll](04-time-and-payroll.md)).
 - ConnectWise remains the system of record until cutover; the app is fed from the nightly mirror
