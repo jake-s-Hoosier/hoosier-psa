@@ -4,6 +4,7 @@ import type { Config } from "./config.js";
 import { HttpError, errorHandler } from "./errors.js";
 import { companyRoutes } from "./routes/companies.js";
 import { healthRoutes } from "./routes/health.js";
+import { systemRoutes } from "./routes/system.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -17,8 +18,10 @@ declare module "fastify" {
 
 export interface AppDeps {
   pool: Pool;
-  config: Pick<Config, "AUTH_MODE" | "LOG_LEVEL">;
+  config: Pick<Config, "AUTH_MODE" | "LOG_LEVEL" | "APP_ENV" | "DB_WRITE_MODE">;
 }
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export function buildApp({ pool, config }: AppDeps): FastifyInstance {
   const app = Fastify({
@@ -47,7 +50,24 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
     req.memberId = id;
   });
 
+  // First line of write protection: in read-only mode no mutating request reaches a handler.
+  // The database pool is read-only as well (createPool), so this is a clear message, not the only guard.
+  app.addHook("onRequest", async (req) => {
+    if (config.DB_WRITE_MODE === "read_only" && !SAFE_METHODS.has(req.method)) {
+      throw new HttpError(
+        403,
+        "Read-only mode",
+        `This ${config.APP_ENV} environment is read-only; changes are not accepted`,
+      );
+    }
+  });
+
   app.register(healthRoutes);
+  app.register(systemRoutes, {
+    prefix: "/api/v1/system",
+    appEnv: config.APP_ENV,
+    writeMode: config.DB_WRITE_MODE,
+  });
   app.register(companyRoutes, { prefix: "/api/v1/companies" });
   return app;
 }

@@ -1,4 +1,4 @@
-import { migrateUp } from "@hoosier/db";
+import { createPool, ensureMarker, migrateUp } from "@hoosier/db";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
@@ -11,6 +11,7 @@ suite("companies API (integration)", () => {
   let admin: pg.Pool;
   let pool: pg.Pool;
   let app: ReturnType<typeof buildApp>;
+  let dbUrl: string;
   let memberId: number;
   let activeStatusId: number;
   const auth = () => ({ "x-dev-member-id": String(memberId) });
@@ -21,8 +22,10 @@ suite("companies API (integration)", () => {
     await admin.query(`CREATE DATABASE ${dbName}`);
     const url = new URL(adminUrl as string);
     url.pathname = `/${dbName}`;
-    pool = new pg.Pool({ connectionString: url.toString(), max: 4 });
+    dbUrl = url.toString();
+    pool = new pg.Pool({ connectionString: dbUrl, max: 4 });
     await migrateUp(pool);
+    await ensureMarker(pool, "test");
     const m = await pool.query<{ id: string }>(
       `INSERT INTO iam.member (identifier, first_name, last_name, email)
        VALUES ('api-test', 'Api', 'Test', 'api@example.com') RETURNING id`,
@@ -32,7 +35,15 @@ suite("companies API (integration)", () => {
       "SELECT id FROM crm.company_status WHERE name = 'Active'",
     );
     activeStatusId = Number(s.rows[0]?.id);
-    app = buildApp({ pool, config: { AUTH_MODE: "dev", LOG_LEVEL: "silent" } });
+    app = buildApp({
+      pool,
+      config: {
+        AUTH_MODE: "dev",
+        LOG_LEVEL: "silent",
+        APP_ENV: "test",
+        DB_WRITE_MODE: "read_write",
+      },
+    });
   });
 
   afterAll(async () => {
@@ -105,5 +116,36 @@ suite("companies API (integration)", () => {
       headers: auth(),
     });
     expect(missing.statusCode).toBe(404);
+  });
+
+  it("a read-only pool blocks writes at the database even if the API layer allowed them", async () => {
+    const roPool = createPool(dbUrl, { readOnly: true, max: 1 });
+    const roApp = buildApp({
+      pool: roPool,
+      // Deliberately misconfigured: API says read_write, the pool is read-only. The database wins.
+      config: {
+        AUTH_MODE: "dev",
+        LOG_LEVEL: "silent",
+        APP_ENV: "test",
+        DB_WRITE_MODE: "read_write",
+      },
+    });
+    try {
+      const res = await roApp.inject({
+        method: "POST",
+        url: "/api/v1/companies",
+        headers: auth(),
+        payload: { identifier: "BLOCKED", name: "Blocked Co", statusId: activeStatusId },
+      });
+      expect(res.statusCode).toBe(503);
+      expect(res.json().title).toBe("Read-only mode");
+      const n = await pool.query(
+        "SELECT count(*)::int AS n FROM crm.company WHERE identifier = 'BLOCKED'",
+      );
+      expect(n.rows[0]?.n).toBe(0);
+    } finally {
+      await roApp.close();
+      await roPool.end();
+    }
   });
 });

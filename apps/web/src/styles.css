@@ -88,9 +88,35 @@ body {
   outline-offset: 1px;
 }
 
+.content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .main {
+  flex: 1;
   overflow: auto;
   padding: var(--space-6);
+}
+.env-banner {
+  display: block;
+  padding: var(--space-2) var(--space-6);
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-border);
+  background: #fff7e0;
+  color: #5c4400;
+}
+.env-banner.env-shadow {
+  background: #e8efff;
+  color: #1d3a8a;
+}
+.env-banner.env-uat {
+  background: #e6f6ec;
+  color: #11602f;
+}
+.env-banner.env-production {
+  background: #fde8e6;
+  color: #7a1d14;
 }
 .page-header {
   display: flex;

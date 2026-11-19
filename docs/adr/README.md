@@ -13,6 +13,7 @@ append-only history: to change a decision, add a new ADR that supersedes the old
 | [0006](0006-money-and-rounding.md) | Money representation and rounding | Accepted |
 | [0007](0007-payment-provider-abstraction.md) | Payment provider abstraction and tokenisation | Accepted |
 | [0008](0008-quickbooks-desktop-web-connector.md) | QuickBooks Desktop integration via Web Connector | Proposed (pending spike) |
+| [0009](0009-environment-markers-and-write-guards.md) | Environment markers and write guards | Accepted |
 
 ## Template
 

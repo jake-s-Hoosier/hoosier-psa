@@ -13,6 +13,7 @@ export class HttpError extends Error {
   }
 }
 
+const PG_READ_ONLY_TRANSACTION = "25006";
 const PG_UNIQUE_VIOLATION = "23505";
 const PG_FK_VIOLATION = "23503";
 const PG_CHECK_VIOLATION = "23514";
@@ -49,6 +50,14 @@ export function errorHandler(
       title: err.title,
       status: err.status,
       detail: err.message === err.title ? undefined : err.message,
+    };
+  } else if ((err as { code?: string }).code === PG_READ_ONLY_TRANSACTION) {
+    // The database refused a write because the connection is read-only (see createPool).
+    problem = {
+      type: "about:blank",
+      title: "Read-only mode",
+      status: 503,
+      detail: "The database is in read-only mode; the change was not saved",
     };
   } else if ((err as { code?: string }).code === PG_UNIQUE_VIOLATION) {
     problem = { type: "about:blank", title: "Conflict", status: 409, detail: "Already exists" };
