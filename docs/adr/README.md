@@ -16,6 +16,7 @@ append-only history: to change a decision, add a new ADR that supersedes the old
 | [0009](0009-environment-markers-and-write-guards.md) | Environment markers and write guards | Accepted |
 | [0010](0010-local-authentication.md) | Staff authentication with local passwords and TOTP | Accepted |
 | [0011](0011-attachments-in-postgres.md) | Ticket attachments are stored in PostgreSQL | Accepted |
+| [0012](0012-microsoft-365-mail.md) | Inbound email through Microsoft 365 (Graph), read-only, polled | Accepted |
 
 ## Template
 

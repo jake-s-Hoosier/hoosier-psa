@@ -62,6 +62,15 @@ Staff sign in with a local password and an authenticator-app code ([ADR 0010](ad
   that would leave no active member with `iam.manage` is refused, built-in roles cannot be renamed or deleted,
   a built-in role can be customised and reset to its defaults, and every grant change is audited with who made it; the **Access** screen (needs `iam.manage`) does the same from the browser.
 
+## Microsoft 365 mail access
+
+- One Entra app registration with the **application** permission `Mail.Read` and nothing else; admin consent granted once.
+- Restrict it with an **application access policy** (Exchange Online `New-ApplicationAccessPolicy`) to a mail-enabled
+  security group containing only the support mailbox(es). Check it with `Test-ApplicationAccessPolicy`; without a policy the app can read every mailbox in the tenant.
+- The client secret lives in the `GRAPH_CLIENT_SECRET` environment variable only, expires (set a reminder), and is rotated by creating a second secret first.
+- The PSA only reads: it never sends, moves, flags or deletes mail. Graph error text is logged, never the token.
+- A reply can join an existing ticket only if the sender is a known contact of that ticket's company or a staff member.
+
 ## Attachments
 
 - Uploaded files are stored in the database ([ADR 0011](adr/0011-attachments-in-postgres.md)), capped at 25 MB, and

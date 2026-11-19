@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AdminPage } from "./AdminPage";
 import { CompaniesPage } from "./CompaniesPage";
 import { LoginPage } from "./LoginPage";
+import { MailPage } from "./MailPage";
 import { TicketsPage } from "./TicketsPage";
 import { TimerBar } from "./TimerBar";
 import {
@@ -23,6 +24,7 @@ const NAV = [
   { id: "projects", label: "Projects", ready: false },
   { id: "agreements", label: "Agreements", ready: false },
   { id: "billing", label: "Billing", ready: false },
+  { id: "mail", label: "Email", ready: true, perm: "service.mailbox.manage" },
   { id: "admin", label: "Access", ready: true, perm: "iam.manage" },
 ] as const;
 
@@ -156,6 +158,7 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
           {page === "tickets" && can("service.ticket.read") && (
             <TicketsPage onTimerChange={refreshTimer} can={can} memberId={me?.member.id ?? null} />
           )}
+          {page === "mail" && can("service.mailbox.manage") && <MailPage />}
           {page === "admin" && can("iam.manage") && <AdminPage />}
           {!firstReady && (
             <div className="state">

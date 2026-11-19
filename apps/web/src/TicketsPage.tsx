@@ -1,5 +1,6 @@
 import type { Ticket, TicketNote } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
+import { MoveToCompany } from "./MoveToCompany";
 import { AttachmentsSection, ResourcesSection } from "./TicketFiles";
 import {
   type Lookups,
@@ -285,6 +286,14 @@ function TicketDetail(props: {
         </label>
       </div>
 
+      {props.can("service.ticket.write") && (
+        <MoveToCompany
+          currentCompanyId={ticket.companyId}
+          onMove={(companyId) =>
+            run(async () => props.onChanged(await updateTicket(ticket.id, { companyId })))
+          }
+        />
+      )}
       <ResourcesSection
         ticketId={ticket.id}
         lookups={lookups}

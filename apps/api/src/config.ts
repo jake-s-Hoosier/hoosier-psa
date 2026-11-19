@@ -30,6 +30,20 @@ const envSchema = z.object({
   AUTH_MODE: z.enum(["dev", "session"]).default("dev"),
   /** Signs session cookies and encrypts MFA secrets. At least 32 characters; rotating it signs everyone out. */
   AUTH_SECRET: z.string().min(32).optional(),
+  /**
+   * Reads the active mailboxes (service.mailbox) in Microsoft 365 and turns mail into tickets. Off by default.
+   * It only reads the mailbox, but it writes tickets, so it needs a writable database; in production it
+   * also needs INTEGRATIONS_ENABLED (docs/adr/0012-microsoft-365-mail.md).
+   */
+  MAIL_POLL_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  MAIL_POLL_INTERVAL_SECONDS: z.coerce.number().int().min(15).max(3600).default(60),
+  /** Entra app registration with Mail.Read (application). Names are Microsoft's; the tenant is a Microsoft 365 tenant. */
+  GRAPH_TENANT_ID: z.string().min(1).optional(),
+  GRAPH_CLIENT_ID: z.string().min(1).optional(),
+  GRAPH_CLIENT_SECRET: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;
@@ -54,6 +68,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(
       "The API never writes in the shadow environment (it is populated by the import tool)",
     );
+  }
+  if (config.MAIL_POLL_ENABLED) {
+    if (!config.GRAPH_TENANT_ID || !config.GRAPH_CLIENT_ID || !config.GRAPH_CLIENT_SECRET)
+      throw new Error(
+        "MAIL_POLL_ENABLED needs GRAPH_TENANT_ID, GRAPH_CLIENT_ID and GRAPH_CLIENT_SECRET",
+      );
+    if (config.DB_WRITE_MODE !== "read_write")
+      throw new Error("MAIL_POLL_ENABLED needs DB_WRITE_MODE=read_write (it creates tickets)");
+    if (config.APP_ENV === "shadow")
+      throw new Error("The shadow environment never reads mail (it is a read-only copy)");
+    if (config.APP_ENV === "production" && !config.INTEGRATIONS_ENABLED)
+      throw new Error("In production, MAIL_POLL_ENABLED also needs INTEGRATIONS_ENABLED=true");
   }
   if (config.INTEGRATIONS_ENABLED && config.APP_ENV !== "production") {
     throw new Error("INTEGRATIONS_ENABLED=true is only allowed when APP_ENV=production");

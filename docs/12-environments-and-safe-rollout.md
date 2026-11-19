@@ -25,6 +25,9 @@ live, and nothing ever writes to `cw_datawarehouse`.** Decision record: ADR 0009
 5. API returns 403 for any non-GET request while `DB_WRITE_MODE=read_only`.
 6. Production write-lock until `approve-go-live` (one-way, recorded with who and when).
 7. `INTEGRATIONS_ENABLED` (QuickBooks export, payments, customer email) only in production.
+   Mail *polling* (`MAIL_POLL_ENABLED`, [ADR 0012](adr/0012-microsoft-365-mail.md)) only reads the mailbox, so UAT may use it on a
+   dedicated test mailbox; it is refused in the shadow, needs a writable database, and in production needs `INTEGRATIONS_ENABLED`.
+   Production polling stays off until cutover because ConnectWise still handles the support mailbox.
 8. UI banner shows the environment and read-only state on every screen.
 9. Operational: the application's database role has no grants on `cw_datawarehouse`; the importer's
    role is read-only there.

@@ -36,7 +36,7 @@ Milestones are defined in [07-roadmap.md](07-roadmap.md).
 | Work roles and work types | roles 11; types 33 | `catalog.work_role`, `catalog.work_type` | M1 | schema |
 | Attachments on tickets/projects | via API | Metadata table plus bytes in PostgreSQL ([ADR 0011](adr/0011-attachments-in-postgres.md)); tickets done, projects later; CW files not yet imported | M1 | tickets done |
 | Project post-mortems | post_mortems 1,461 + 7 detail tables | Native project close-out analytics | M3 | planned |
-| Email-to-ticket | n/a | Inbound mailbox via Microsoft Graph | M1 | planned |
+| Email-to-ticket | n/a | Inbound mailbox via Microsoft Graph, polled, read-only ([ADR 0012](adr/0012-microsoft-365-mail.md)); outbound notices later | M1 | inbound done, untested against Graph |
 | Reporting | many ad-hoc SQL reports on the mirror | Keep SQL reporting on Postgres; add curated views | M1+ | planned |
 | Members and security roles | members 79 | `iam.*`; local sign-in with MFA | M1 | schema |
 

@@ -209,11 +209,44 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
         params.push(value);
         sets.push(`${col} = $${params.length}`);
       };
+      if (body.companyId !== undefined && body.companyId !== Number(current.company_id)) {
+        const c = await client.query("SELECT 1 FROM crm.company WHERE id = $1", [body.companyId]);
+        if (!c.rowCount) throw new HttpError(422, "Invalid company", "Company not found");
+        set("company_id", body.companyId);
+        // A site or contact belongs to one company, so a move clears them unless the request names new ones.
+        if (body.siteId === undefined) sets.push("site_id = NULL");
+        if (body.contactId === undefined) sets.push("contact_id = NULL");
+      }
       if (body.summary !== undefined) set("summary", body.summary);
       if (body.priorityId !== undefined) set("priority_id", body.priorityId);
       if (body.ownerMemberId !== undefined) set("owner_member_id", body.ownerMemberId);
-      if (body.siteId !== undefined) set("site_id", body.siteId);
-      if (body.contactId !== undefined) set("contact_id", body.contactId);
+      const targetCompany = body.companyId ?? Number(current.company_id);
+      if (body.siteId !== undefined) {
+        if (body.siteId !== null) {
+          const ok = await client.query(
+            "SELECT 1 FROM crm.site WHERE id = $1 AND company_id = $2",
+            [body.siteId, targetCompany],
+          );
+          if (!ok.rowCount)
+            throw new HttpError(422, "Invalid site", "The site is not at this ticket's company");
+        }
+        set("site_id", body.siteId);
+      }
+      if (body.contactId !== undefined) {
+        if (body.contactId !== null) {
+          const ok = await client.query(
+            "SELECT 1 FROM crm.contact WHERE id = $1 AND company_id = $2",
+            [body.contactId, targetCompany],
+          );
+          if (!ok.rowCount)
+            throw new HttpError(
+              422,
+              "Invalid contact",
+              "The contact is not at this ticket's company",
+            );
+        }
+        set("contact_id", body.contactId);
+      }
       if (body.statusId !== undefined && body.statusId !== Number(current.status_id)) {
         const target = await statusOnBoard(client, body.statusId, Number(current.board_id));
         set("status_id", body.statusId);

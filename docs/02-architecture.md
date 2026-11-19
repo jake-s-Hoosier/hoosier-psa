@@ -18,7 +18,7 @@ flowchart LR
   end
   CF[Cloudflare tunnel]
   QB[QuickBooks Desktop<br/>HSIN-QB01]
-  MAIL[Email provider<br/>inbound tickets, notices: to decide]
+  MAIL[Microsoft 365 mailbox<br/>inbound tickets via Graph, read-only]
   PAY[Stripe / WisePay /<br/>Global Payments]
   CW[ConnectWise<br/>until cutover]
 

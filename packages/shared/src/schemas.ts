@@ -118,6 +118,8 @@ export type TicketCreate = z.infer<typeof ticketCreateSchema>;
 export const ticketUpdateSchema = z
   .object({
     summary: z.string().trim().min(1).max(500),
+    /** Moves the ticket to another company; its site and contact are cleared unless given too. */
+    companyId: idSchema,
     statusId: idSchema,
     priorityId: idSchema,
     ownerMemberId: idSchema.nullable(),

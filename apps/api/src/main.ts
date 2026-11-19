@@ -2,6 +2,8 @@ import { assertSafeTarget, checkWriteAccess, createPool, readMarker } from "@hoo
 import { buildApp } from "./app.js";
 import { syncPermissions } from "./auth/permissions.js";
 import { loadConfig } from "./config.js";
+import { GraphMailSource } from "./mail/graph.js";
+import { startPoller } from "./mail/poller.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -45,8 +47,20 @@ async function main(): Promise<void> {
     "startup safety checks passed",
   );
 
+  let stopMail: (() => void) | undefined;
+  if (config.MAIL_POLL_ENABLED) {
+    const source = new GraphMailSource({
+      tenantId: config.GRAPH_TENANT_ID as string,
+      clientId: config.GRAPH_CLIENT_ID as string,
+      clientSecret: config.GRAPH_CLIENT_SECRET as string,
+    });
+    stopMail = startPoller(pool, source, config.MAIL_POLL_INTERVAL_SECONDS * 1000, app.log);
+    app.log.info({ everySeconds: config.MAIL_POLL_INTERVAL_SECONDS }, "mail polling started");
+  }
+
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, "shutting down");
+    stopMail?.();
     await app.close();
     await pool.end();
     process.exit(0);

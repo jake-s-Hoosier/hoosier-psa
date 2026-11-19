@@ -103,8 +103,10 @@ export const createTicket = (body: {
   description?: string;
 }) => request<Ticket>("POST", "/api/v1/tickets", body);
 
-export const updateTicket = (id: number, body: { statusId?: number; priorityId?: number }) =>
-  request<Ticket>("PATCH", `/api/v1/tickets/${id}`, body);
+export const updateTicket = (
+  id: number,
+  body: { statusId?: number; priorityId?: number; companyId?: number },
+) => request<Ticket>("PATCH", `/api/v1/tickets/${id}`, body);
 
 export const listNotes = (id: number, signal?: AbortSignal) =>
   get<{ items: TicketNote[] }>(`/api/v1/tickets/${id}/notes`, signal);
@@ -278,3 +280,52 @@ export async function downloadAttachment(att: TicketAttachment): Promise<void> {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
+
+// ---- Inbound email (service.mailbox.manage) ----
+export interface MailboxView {
+  id: number;
+  address: string;
+  boardId: number;
+  board: string;
+  priorityId: number | null;
+  fallbackCompanyId: number;
+  fallbackCompany: string;
+  reopenOnReply: boolean;
+  isActive: boolean;
+  pollFrom: string;
+  lastReceivedAt: string | null;
+  lastPolledAt: string | null;
+  lastError: string | null;
+}
+export interface InboundMessage {
+  id: number;
+  mailbox: string;
+  fromAddress: string;
+  fromName: string | null;
+  subject: string;
+  receivedAt: string;
+  outcome: "created" | "created_unmatched" | "appended" | "ignored" | "error";
+  reason: string | null;
+  ticketId: number | null;
+  attachmentsStored: number;
+  attachmentsSkipped: number;
+}
+export const listMailboxes = () => get<{ items: MailboxView[] }>("/api/v1/mailboxes");
+export const createMailbox = (body: {
+  address: string;
+  boardId: number;
+  fallbackCompanyId: number;
+}) => request<MailboxView>("POST", "/api/v1/mailboxes", body);
+export const updateMailbox = (
+  id: number,
+  body: {
+    isActive?: boolean;
+    reopenOnReply?: boolean;
+    boardId?: number;
+    fallbackCompanyId?: number;
+  },
+) => request<MailboxView>("PATCH", `/api/v1/mailboxes/${id}`, body);
+export const listInboundMessages = (outcome?: string) =>
+  get<{ items: InboundMessage[] }>(
+    `/api/v1/mailboxes/messages${outcome ? `?outcome=${outcome}` : ""}`,
+  );

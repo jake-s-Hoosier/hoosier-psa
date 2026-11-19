@@ -9,6 +9,7 @@ export const PERMISSIONS = {
   "service.ticket.read": "View service tickets",
   "service.ticket.write": "Create and edit service tickets",
   "service.ticket.delete": "Delete service tickets",
+  "service.mailbox.manage": "Set up inbound email mailboxes and review incoming mail",
   "timekeeping.time.read_own": "View own time entries",
   "timekeeping.time.write_own": "Enter and edit own time entries",
   "timekeeping.time.read_all": "View everyone's time entries",
@@ -41,6 +42,7 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "timekeeping.time.approve",
     "timekeeping.period.lock",
     "catalog.manage",
+    "service.mailbox.manage",
     "system.audit.read",
   ],
   Dispatcher: [

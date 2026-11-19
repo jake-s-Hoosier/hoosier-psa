@@ -6,6 +6,13 @@ the first production release.
 ## [Unreleased]
 
 ### Added
+- Inbound email to tickets through Microsoft 365 ([ADR 0012](docs/adr/0012-microsoft-365-mail.md), migration 0011):
+  Graph reader (`Mail.Read`, polled, read-only), processor that opens tickets for known contacts, adds replies to the
+  ticket named in the subject or threaded by `In-Reply-To`/`References` (only from a known contact of that company or staff),
+  sends unknown or ambiguous senders to a fallback company, ignores automatic mail and our own mailboxes, stores attachments,
+  and is safe to repeat. New **Email** screen (mailboxes, message log), `/api/v1/mailboxes`, permission `service.mailbox.manage`,
+  "Move to another company" on tickets (`PATCH companyId`; site and contact must belong to the ticket's company).
+  `MAIL_POLL_ENABLED` and `GRAPH_*` settings, off by default and refused in the shadow.
 - Role administration: **Access** screen and `/api/v1/admin/*` (needs `iam.manage`): list roles with effective
   grants, create custom roles, edit any role's permissions, reset a built-in role to its defaults, delete
   unused custom roles, set each member's roles, deactivate or reactivate members (signs them out). A change that
