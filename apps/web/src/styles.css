@@ -1,0 +1,177 @@
+/* Design tokens. Every colour, space and radius in the app comes from here (docs/09-design-system.md). */
+:root {
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-border: #e3e6eb;
+  --color-text: #14181f;
+  --color-text-muted: #5b6573;
+  --color-accent: #1d4ed8;
+  --color-accent-contrast: #ffffff;
+  --color-accent-soft: #e8efff;
+  --color-danger: #b42318;
+  --color-nav-bg: #0f1722;
+  --color-nav-text: #c7cfdb;
+  --color-nav-active: #ffffff;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --radius: 8px;
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 6%);
+  --nav-width: 232px;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--nav-width) 1fr;
+  height: 100%;
+}
+.nav {
+  background: var(--color-nav-bg);
+  color: var(--color-nav-text);
+  padding: var(--space-4);
+}
+.nav h1 {
+  margin: 0 0 var(--space-6);
+  font-size: 16px;
+  color: var(--color-nav-active);
+  letter-spacing: 0.2px;
+}
+.nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-1);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.nav button:hover {
+  background: rgb(255 255 255 / 8%);
+}
+.nav button[aria-current="page"] {
+  background: rgb(255 255 255 / 14%);
+  color: var(--color-nav-active);
+}
+.nav button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.nav button:focus-visible {
+  outline: 2px solid var(--color-accent-soft);
+  outline-offset: 1px;
+}
+
+.main {
+  overflow: auto;
+  padding: var(--space-6);
+}
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+.page-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.toolbar {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.input {
+  min-width: 280px;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font: inherit;
+  background: var(--color-surface);
+}
+.input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0;
+  border-color: var(--color-accent);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--color-text-muted);
+}
+th,
+td {
+  padding: 10px var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+tbody tr:hover {
+  background: var(--color-bg);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.muted {
+  color: var(--color-text-muted);
+}
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.state {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+.state.error {
+  color: var(--color-danger);
+}

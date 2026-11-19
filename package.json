@@ -1,0 +1,29 @@
+{
+  "name": "hoosier-psa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hoosier PSA: CRM, service, projects, dispatch, time, billing and agreements for Hoosier Security.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "db:migrate": "pnpm --filter @hoosier/db migrate",
+    "db:status": "pnpm --filter @hoosier/db status",
+    "dev:api": "pnpm --filter @hoosier/api dev",
+    "dev:web": "pnpm --filter @hoosier/web dev"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.7.2"
+  }
+}
