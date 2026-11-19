@@ -127,3 +127,54 @@ describe("allocateOvertime", () => {
     ).toThrow(RangeError);
   });
 });
+
+import { DEFAULT_BILLING_ROUNDING, roundingRuleFor, workTypeBillRate } from "./time.js";
+
+const wt = (over: Partial<Parameters<typeof workTypeBillRate>[1]> = {}) => ({
+  rateType: "multiplier" as const,
+  rateMultiplier: 1,
+  customRate: null,
+  rateAdjustment: null,
+  hoursMin: 0,
+  hoursMax: 0,
+  roundBillingHoursTo: null,
+  ...over,
+});
+
+describe("workTypeBillRate", () => {
+  it("multiplies the role rate", () => {
+    expect(workTypeBillRate(100, wt({ rateMultiplier: 1.5 }))).toBe(150);
+  });
+  it("uses a custom rate and ignores the role rate", () => {
+    expect(workTypeBillRate(100, wt({ rateType: "custom", customRate: 197 }))).toBe(197);
+  });
+  it("adds an adjustment to the role rate and never goes negative", () => {
+    expect(workTypeBillRate(100, wt({ rateType: "adjustment", rateAdjustment: -25 }))).toBe(75);
+    expect(workTypeBillRate(10, wt({ rateType: "adjustment", rateAdjustment: -25 }))).toBe(0);
+  });
+  it("rejects a custom type without a rate", () => {
+    expect(() => workTypeBillRate(100, wt({ rateType: "custom" }))).toThrow(RangeError);
+  });
+});
+
+describe("roundingRuleFor and the maximum block", () => {
+  it("applies the work type minimum (Onsite - Service bills at least 1 hour)", () => {
+    const rule = roundingRuleFor(wt({ hoursMin: 1 }), DEFAULT_BILLING_ROUNDING);
+    expect(billedHours(0.42, rule)).toBe(1);
+    expect(billedHours(1.1, rule)).toBe(1.25);
+  });
+  it("caps billing at the work type maximum (Dispatch is capped at 1 hour)", () => {
+    const rule = roundingRuleFor(wt({ hoursMax: 1 }), DEFAULT_BILLING_ROUNDING);
+    expect(billedHours(2.5, rule)).toBe(1);
+    expect(billedHours(0.4, rule)).toBe(0.5);
+  });
+  it("uses the work type's own increment when it defines one", () => {
+    const rule = roundingRuleFor(wt({ roundBillingHoursTo: 0.5 }), DEFAULT_BILLING_ROUNDING);
+    expect(billedHours(0.6, rule)).toBe(1);
+  });
+  it("matches CW history: 25 minutes bills as half an hour under the default", () => {
+    expect(billedHours(0.42, DEFAULT_BILLING_ROUNDING)).toBe(0.5);
+    expect(billedHours(2.33, DEFAULT_BILLING_ROUNDING)).toBe(2.5);
+    expect(billedHours(1.67, DEFAULT_BILLING_ROUNDING)).toBe(1.75);
+  });
+});
