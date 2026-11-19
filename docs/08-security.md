@@ -3,8 +3,9 @@
 > **Implementation status.** In place: database-level audit trail, immutable migrations, input
 > validation, parameterised SQL, problem+json errors, production refusal of dev auth, local
 > password + TOTP sign-in with signed sessions, CSRF header, sign-in throttling and the admin CLI
-> ([ADR 0010](adr/0010-local-authentication.md)). Still to come: per-route permission enforcement
-> and role administration, separate database roles, per-route rate limiting. Later milestones:
+> ([ADR 0010](adr/0010-local-authentication.md)), and per-route permission enforcement with roles
+> managed from the Access screen or the admin CLI. Still to come: separate database roles,
+> per-route rate limiting. Later milestones:
 > portal authentication and payment handling.
 
 ## Threat model in brief
@@ -30,7 +31,7 @@ Staff sign in with a local password and an authenticator-app code ([ADR 0010](ad
   account (and 30 lock an address) for 15 minutes.
 - `iam.member_credential` is not audited, so hashes and secrets never reach `sys.audit_log`; security
   events are in `iam.auth_event`.
-- Operations: `pnpm auth set-password <id>`, `pnpm auth reset-mfa <id>`, `pnpm auth status`. They honour the
+- Operations: `pnpm auth set-password <id>`, `pnpm auth reset-mfa <id>`, `pnpm auth grant-role <id> <role>`, `pnpm auth revoke-role <id> <role>`, `pnpm auth sync-permissions`, `pnpm auth status`. They honour the
   environment marker and production go-live lock. Lost authenticator: reset MFA, member enrols again.
 - `AUTH_MODE=dev` (trusts a header) exists only for local development and tests; the API refuses to start
   with it when `NODE_ENV` or `APP_ENV` is production.
@@ -39,11 +40,36 @@ Staff sign in with a local password and an authenticator-app code ([ADR 0010](ad
 
 ## Authorization
 
-- Permission keys (`module.resource.action`) are defined in code and synced to `iam.permission`; roles
-  group them; members hold roles. Code checks keys, never role names.
-- Every API route declares the permission it needs; a route without a declaration fails a unit test.
-- "Own" versus "all" scopes (time entries, tickets) are separate keys.
-- Defaults live in `packages/shared/src/permissions.ts` and are seeded; changes are made in the admin UI and audited.
+- Permission keys (`module.resource.action`) are defined in code (`packages/shared/src/permissions.ts`) and
+  synced to `iam.permission` when a writable API starts (or with `pnpm auth sync-permissions`); roles group
+  them; members hold roles. Code checks keys, never role names.
+- **Deny by default.** Every `/api/v1` route declares what it needs in `config.perm`: a permission key, a list
+  (any one suffices), `"authenticated"` (any fully signed-in member) or `"signin"` (the sign-in routes, which
+  work with a partly signed-in session). A route with no declaration answers 403, and a unit test lists every
+  route and fails if one has none.
+- The check runs after authentication for both session and dev modes, so a half-signed-in session (password
+  change or MFA pending) never reaches business routes.
+- **Where grants come from.** A role's rows in `iam.role_permission` once an administrator has set any;
+  otherwise the system role's defaults in code, so a fresh or read-only (shadow) database works without a
+  seeding step. A member's permissions are the union over their roles. Keys no longer in code are ignored.
+- **Own versus all.** Time entries: `read_own` / `write_own` for yourself, `read_all` / `write_all` for others
+  (listing another member's time needs `read_all`; removing another member's entry needs `write_all`).
+- **Separation of duties.** Approving time needs `timekeeping.time.approve`, and nobody can approve their own
+  time. Locking and exporting pay periods need `timekeeping.period.lock`.
+- The sign-in response tells the web app what the member may do so it hides controls they cannot use. That is
+  a convenience only; the API enforces every rule.
+- Role changes: the Access screen, or `pnpm auth grant-role <id> <role>` and `revoke-role`. Either way, a change
+  that would leave no active member with `iam.manage` is refused, built-in roles cannot be renamed or deleted,
+  a built-in role can be customised and reset to its defaults, and every grant change is audited with who made it; the **Access** screen (needs `iam.manage`) does the same from the browser.
+
+## Attachments
+
+- Uploaded files are stored in the database ([ADR 0011](adr/0011-attachments-in-postgres.md)), capped at 25 MB, and
+  never written to the audit log.
+- They are served only as downloads (`Content-Disposition: attachment`, `nosniff`, sandbox CSP), so an uploaded
+  HTML or SVG file cannot execute in the application's origin.
+- Anyone who can read a ticket can download its files; uploading and removing needs `service.ticket.write`
+  (removing someone else's file needs `service.ticket.delete`). No malware scanning yet; add it before files reach the customer portal.
 
 ## Data protection
 

@@ -15,6 +15,7 @@ import {
   verifyPassword,
   verifyTotp,
 } from "../auth/crypto.js";
+import { loadPermissions } from "../auth/permissions.js";
 import {
   type AuthMember,
   type AuthStage,
@@ -35,6 +36,8 @@ declare module "fastify" {
     authStage: AuthStage | null;
     /** Whether the caller's session has passed the second factor. */
     authMfa: boolean;
+    /** Permissions held through the member's roles; set for /api/v1 routes after authentication. */
+    permissions: ReadonlySet<string>;
   }
 }
 
@@ -58,7 +61,7 @@ export const authRoutes: FastifyPluginAsync<Opts> = async (app, opts) => {
   const byAccount = new LoginThrottle(5);
   const byIp = new LoginThrottle(30);
 
-  const view = (m: AuthMember, stage: AuthStage) => ({
+  const view = async (m: AuthMember, stage: AuthStage) => ({
     stage,
     member: {
       id: m.id,
@@ -67,6 +70,8 @@ export const authRoutes: FastifyPluginAsync<Opts> = async (app, opts) => {
       firstName: m.firstName,
       lastName: m.lastName,
     },
+    // Only a fully signed-in member is told what they may do; the UI uses this to hide controls.
+    permissions: stage === "ok" ? [...(await loadPermissions(app.pool, m.id))].sort() : [],
   });
 
   /** Best-effort security log. Skipped where the database is read-only. */
@@ -99,7 +104,7 @@ export const authRoutes: FastifyPluginAsync<Opts> = async (app, opts) => {
     return req.memberId;
   }
 
-  app.post("/login", async (req, reply) => {
+  app.post("/login", { config: { perm: "signin" } }, async (req, reply) => {
     const body = loginSchema.parse(req.body);
     const key = body.identifier.toLowerCase();
     const wait = Math.max(byAccount.lockedFor(key), byIp.lockedFor(req.ip));
@@ -131,12 +136,12 @@ export const authRoutes: FastifyPluginAsync<Opts> = async (app, opts) => {
     return view(member, stageOf(member, false));
   });
 
-  app.post("/logout", async (req, reply) => {
+  app.post("/logout", { config: { perm: "signin" } }, async (req, reply) => {
     clearSessionCookie(req, reply);
     return reply.status(204).send();
   });
 
-  app.get("/me", async (req) => {
+  app.get("/me", { config: { perm: "signin" } }, async (req) => {
     const member = await loadAuthMember(
       app.pool,
       requireStage(req, "password_change", "mfa_enroll", "mfa_required", "ok"),
@@ -145,7 +150,7 @@ export const authRoutes: FastifyPluginAsync<Opts> = async (app, opts) => {
     return view(member, req.authStage as AuthStage);
   });
 
-  app.post("/mfa/verify", async (req, reply) => {
+  app.post("/mfa/verify", { config: { perm: "signin" } }, async (req, reply) => {
     const memberId = requireStage(req, "mfa_required");
     const { code } = codeSchema.parse(req.body);
     const throttleKey = `mfa:${memberId}`;
@@ -190,7 +195,7 @@ export const authRoutes: FastifyPluginAsync<Opts> = async (app, opts) => {
   });
 
   // First-time MFA setup: generate a secret, show it once, confirm with a code.
-  app.post("/mfa/setup", async (req) => {
+  app.post("/mfa/setup", { config: { perm: "signin" } }, async (req) => {
     requireWritable();
     const memberId = requireStage(req, "mfa_enroll");
     const member = await loadAuthMember(app.pool, memberId);
@@ -212,7 +217,7 @@ export const authRoutes: FastifyPluginAsync<Opts> = async (app, opts) => {
     return { secret: b32, otpauthUri: otpauthUri(b32, member.email, ISSUER) };
   });
 
-  app.post("/mfa/enable", async (req, reply) => {
+  app.post("/mfa/enable", { config: { perm: "signin" } }, async (req, reply) => {
     requireWritable();
     const memberId = requireStage(req, "mfa_enroll");
     const { code } = codeSchema.parse(req.body);
@@ -244,10 +249,10 @@ export const authRoutes: FastifyPluginAsync<Opts> = async (app, opts) => {
     if (!updated) throw new HttpError(401, "Unauthorized", "Sign in again");
     setSessionCookie(req, reply, newClaims(updated, true), authSecret);
     await logEvent(req, memberId, "mfa_enrolled");
-    return { ...view(updated, stageOf(updated, true)), recoveryCodes: codes };
+    return { ...(await view(updated, stageOf(updated, true))), recoveryCodes: codes };
   });
 
-  app.post("/password", async (req, reply) => {
+  app.post("/password", { config: { perm: "signin" } }, async (req, reply) => {
     requireWritable();
     const memberId = requireStage(req, "password_change", "ok");
     const body = passwordSchema.parse(req.body);

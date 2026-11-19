@@ -56,7 +56,8 @@ decimals, recurring flag, QuickBooks item name).
 ### `service` (migrated)
 `board`, `board_status` (closed, default, pauses-SLA flags), `priority`, `ticket_type`,
 `ticket_subtype`, `ticket_source`, `ticket`, `ticket_resource`, `ticket_note` (description,
-discussion, internal, resolution).
+discussion, internal, resolution), `ticket_attachment` (metadata, soft delete) and
+`ticket_attachment_blob` (file bytes, deliberately not audited; [ADR 0011](adr/0011-attachments-in-postgres.md)).
 
 A ticket's `billing_method` is `actual_rates`, `fixed_fee`, `not_to_exceed` or `override_rate`.
 `agreement_id` and `project_id` are plain columns until the agreement and project migrations add the

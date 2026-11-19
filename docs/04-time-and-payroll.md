@@ -128,12 +128,14 @@ into Justworks stays manual; the export replaces the spreadsheet and the hand co
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/v1/timesheets/submit` / `recall` | Member submits or recalls their own open/submitted time for a date range. Submit is refused while a timer is running. |
-| `POST /api/v1/timesheets/approve` | Marks a member's submitted time approved. (Permission checks arrive with sign-in.) |
-| `GET /api/v1/timesheets/summary` | Per-member entry and hour counts by status for a range. |
+| `POST /api/v1/timesheets/approve` | Marks a member's submitted time approved. Needs `timekeeping.time.approve`; you cannot approve your own time. |
+| `GET /api/v1/timesheets/summary` | Per-member entry and hour counts by status for a range. Needs `timekeeping.time.read_all`. |
 | `POST /api/v1/pay-periods/generate` | Creates the 1-15 and 16-end periods for a month; safe to repeat. |
 | `GET /api/v1/pay-periods/:id/payroll` | Review table for any period, with warnings and the count of unsubmitted entries. |
 | `POST /api/v1/pay-periods/:id/lock` | Refused while any time in the period is still open; otherwise stamps entries and freezes them. |
 | `POST /api/v1/pay-periods/:id/export?format=csv` | Requires a locked period; first call marks it exported. |
+
+All pay-period endpoints need `timekeeping.period.lock`. Listing time entries shows your own unless you hold `timekeeping.time.read_all`.
 
 Payroll counts **actual hours** of submitted, approved and billed time, whether or not it is billable.
 *Assumption to confirm against the current spreadsheet:* CW-derived payroll uses actual (not billed) hours.

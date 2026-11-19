@@ -1,5 +1,6 @@
 import { assertSafeTarget, checkWriteAccess, createPool, readMarker } from "@hoosier/db";
 import { buildApp } from "./app.js";
+import { syncPermissions } from "./auth/permissions.js";
 import { loadConfig } from "./config.js";
 
 async function main(): Promise<void> {
@@ -25,6 +26,13 @@ async function main(): Promise<void> {
     if (!decision.allowed) {
       throw new Error(`Refusing to start in read_write mode: ${decision.reason}`);
     }
+  }
+
+  if (config.DB_WRITE_MODE === "read_write") {
+    // Keep the permission catalogue in step with the code. A read-only shadow never writes; it
+    // answers from the defaults in packages/shared instead.
+    const synced = await syncPermissions(pool);
+    if (synced.added || synced.removed) console.log("permissions synced", synced);
   }
 
   const app = buildApp({ pool, config });

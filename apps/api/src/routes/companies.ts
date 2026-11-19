@@ -47,7 +47,7 @@ function toCompany(r: CompanyRow): Company {
 }
 
 export const companyRoutes: FastifyPluginAsync = async (app) => {
-  app.get("/", async (req) => {
+  app.get("/", { config: { perm: "crm.company.read" } }, async (req) => {
     const q = companyListQuerySchema.parse(req.query);
     const where: string[] = ["c.deleted_at IS NULL"];
     const params: unknown[] = [];
@@ -77,7 +77,7 @@ export const companyRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
-  app.get("/:id", async (req) => {
+  app.get("/:id", { config: { perm: "crm.company.read" } }, async (req) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     const { rows } = await app.pool.query<CompanyRow>(
       `${SELECT_COMPANY} WHERE c.id = $1 AND c.deleted_at IS NULL`,
@@ -88,7 +88,7 @@ export const companyRoutes: FastifyPluginAsync = async (app) => {
     return toCompany(row);
   });
 
-  app.post("/", async (req, reply) => {
+  app.post("/", { config: { perm: "crm.company.write" } }, async (req, reply) => {
     const body = companyCreateSchema.parse(req.body);
     const created = await withActor(app.pool, req.memberId, async (client) => {
       const { rows } = await client.query<{ id: string }>(

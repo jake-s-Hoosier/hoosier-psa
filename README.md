@@ -54,8 +54,10 @@ pnpm dev:web                    # http://127.0.0.1:5173
 
 Staff sign in with a password plus an authenticator code (`AUTH_MODE=session`, needs `AUTH_SECRET`; see
 [ADR 0010](docs/adr/0010-local-authentication.md)). Create a login with `pnpm auth set-password <identifier>`
-(prints a one-time temporary password; first sign-in forces a new password and authenticator setup).
-For quick local work `AUTH_MODE=dev` trusts an `x-dev-member-id` header; the API refuses to start that way in
+(prints a one-time temporary password; first sign-in forces a new password and authenticator setup), then give
+it a role with `pnpm auth grant-role <identifier> Administrator` (or Technician, Manager, and so on). A member with
+no role can sign in but cannot reach anything beyond reference lookups.
+For quick local work `AUTH_MODE=dev` trusts an `x-dev-member-id` header (permissions still apply, so grant that member a role); the API refuses to start that way in
 production.
 
 ## Safety: nothing writes to production until we say so

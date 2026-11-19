@@ -133,7 +133,7 @@ async function payrollRows(db: pg.Pool | pg.PoolClient, period: PeriodRow): Prom
 }
 
 export const payPeriodRoutes: FastifyPluginAsync = async (app) => {
-  app.get("/", async () => {
+  app.get("/", { config: { perm: "timekeeping.period.lock" } }, async () => {
     const { rows } = await app.pool.query<PeriodRow>(
       `${SELECT_PERIOD} ORDER BY start_date DESC LIMIT 100`,
     );
@@ -141,7 +141,7 @@ export const payPeriodRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** Creates the two semi-monthly periods for a month (1-15 and 16-end). Existing ones are kept. */
-  app.post("/generate", async (req, reply) => {
+  app.post("/generate", { config: { perm: "timekeeping.period.lock" } }, async (req, reply) => {
     const { year, month } = payPeriodGenerateSchema.parse(req.body);
     const mm = String(month).padStart(2, "0");
     const last = lastDayOfMonth(year, month);
@@ -185,7 +185,7 @@ export const payPeriodRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** Review table: works for any status, so a period can be previewed before it is locked. */
-  app.get("/:id/payroll", async (req) => {
+  app.get("/:id/payroll", { config: { perm: "timekeeping.period.lock" } }, async (req) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     const period = await loadPeriod(app.pool, id);
     const open = await app.pool.query<{ n: string }>(
@@ -206,7 +206,7 @@ export const payPeriodRoutes: FastifyPluginAsync = async (app) => {
    * Locks the period: every entry must be submitted or approved (no open entries, no running timer).
    * Entries are stamped with the period and become immutable (database guard).
    */
-  app.post("/:id/lock", async (req) => {
+  app.post("/:id/lock", { config: { perm: "timekeeping.period.lock" } }, async (req) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     const locked = await withActor(app.pool, req.memberId, async (client) => {
       const period = await loadPeriod(client, id, true);
@@ -246,7 +246,7 @@ export const payPeriodRoutes: FastifyPluginAsync = async (app) => {
    * Produces the payroll file. The first export marks the period exported; later calls return the same
    * figures (time in a locked period cannot change). `format=csv` returns the file, default JSON.
    */
-  app.post("/:id/export", async (req, reply) => {
+  app.post("/:id/export", { config: { perm: "timekeeping.period.lock" } }, async (req, reply) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     const { format } = z
       .object({ format: z.enum(["json", "csv"]).default("json") })

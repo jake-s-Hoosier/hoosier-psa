@@ -92,7 +92,7 @@ async function statusOnBoard(
 }
 
 export const ticketRoutes: FastifyPluginAsync = async (app) => {
-  app.get("/", async (req) => {
+  app.get("/", { config: { perm: "service.ticket.read" } }, async (req) => {
     const q = ticketListQuerySchema.parse(req.query);
     const where: string[] = [];
     const params: unknown[] = [];
@@ -130,12 +130,12 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
-  app.get("/:id", async (req) => {
+  app.get("/:id", { config: { perm: "service.ticket.read" } }, async (req) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     return toTicket(await loadTicket(app.pool, id));
   });
 
-  app.post("/", async (req, reply) => {
+  app.post("/", { config: { perm: "service.ticket.write" } }, async (req, reply) => {
     const body = ticketCreateSchema.parse(req.body);
     const created = await withActor(app.pool, req.memberId, async (client) => {
       const board = await client.query<{ default_priority_id: string | null }>(
@@ -198,7 +198,7 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
       .send(toTicket(created));
   });
 
-  app.patch("/:id", async (req) => {
+  app.patch("/:id", { config: { perm: "service.ticket.write" } }, async (req) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     const body = ticketUpdateSchema.parse(req.body);
     const updated = await withActor(app.pool, req.memberId, async (client) => {
@@ -237,7 +237,7 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
     return toTicket(updated);
   });
 
-  app.get("/:id/notes", async (req) => {
+  app.get("/:id/notes", { config: { perm: "service.ticket.read" } }, async (req) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     await loadTicket(app.pool, id);
     const { rows } = await app.pool.query<{
@@ -263,7 +263,7 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
     return { items };
   });
 
-  app.post("/:id/notes", async (req, reply) => {
+  app.post("/:id/notes", { config: { perm: "service.ticket.write" } }, async (req, reply) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     const body = ticketNoteCreateSchema.parse(req.body);
     const note = await withActor(app.pool, req.memberId, async (client) => {

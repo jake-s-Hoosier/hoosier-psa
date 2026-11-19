@@ -173,7 +173,7 @@ async function assertPeriodOpen(client: pg.PoolClient, periodId: number | null):
 }
 
 export const timeRoutes: FastifyPluginAsync = async (app) => {
-  app.get("/", async (req) => {
+  app.get("/", { config: { perm: "timekeeping.time.read_own" } }, async (req) => {
     const q = timeEntryListQuerySchema.parse(req.query);
     const where: string[] = ["status <> 'void'"];
     const params: unknown[] = [];
@@ -181,7 +181,13 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
       params.push(value);
       where.push(sql.replace("?", `$${params.length}`));
     };
-    if (q.memberId) add("member_id = ?", q.memberId);
+    // Own time by default; seeing anyone else's needs read_all.
+    const canSeeAll = req.permissions.has("timekeeping.time.read_all");
+    if (!canSeeAll && q.memberId && q.memberId !== req.memberId) {
+      throw new HttpError(403, "Forbidden", "You can only view your own time entries");
+    }
+    if (!canSeeAll) add("member_id = ?", req.memberId);
+    else if (q.memberId) add("member_id = ?", q.memberId);
     if (q.ticketId) add("ticket_id = ?", q.ticketId);
     if (q.from) add("work_date >= ?::date", q.from);
     if (q.to) add("work_date <= ?::date", q.to);
@@ -203,7 +209,7 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
-  app.get("/timer", async (req) => {
+  app.get("/timer", { config: { perm: "timekeeping.time.write_own" } }, async (req) => {
     const { rows } = await app.pool.query<TimeRow>(
       `${SELECT_TIME} WHERE member_id = $1 AND is_timer AND ended_at IS NULL`,
       [req.memberId],
@@ -211,42 +217,46 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
     return { timer: rows[0] ? toEntry(rows[0]) : null };
   });
 
-  app.post("/timer/start", async (req, reply) => {
-    const body = timerStartSchema.parse(req.body);
-    const memberId = req.memberId as number;
-    const entry = await withActor(app.pool, memberId, async (client) => {
-      const companyId = await ticketCompany(client, body.ticketId);
-      const pricing = await pricingFor(client, memberId, body.workRoleId, body.workTypeId);
-      const now = new Date();
-      const workDate = localDate(now);
-      await assertPeriodOpen(client, await periodIdFor(client, workDate));
-      const { rows } = await client.query<{ id: string }>(
-        `INSERT INTO timekeeping.time_entry
+  app.post(
+    "/timer/start",
+    { config: { perm: "timekeeping.time.write_own" } },
+    async (req, reply) => {
+      const body = timerStartSchema.parse(req.body);
+      const memberId = req.memberId as number;
+      const entry = await withActor(app.pool, memberId, async (client) => {
+        const companyId = await ticketCompany(client, body.ticketId);
+        const pricing = await pricingFor(client, memberId, body.workRoleId, body.workTypeId);
+        const now = new Date();
+        const workDate = localDate(now);
+        await assertPeriodOpen(client, await periodIdFor(client, workDate));
+        const { rows } = await client.query<{ id: string }>(
+          `INSERT INTO timekeeping.time_entry
            (member_id, company_id, charge_type, ticket_id, work_role_id, work_type_id, work_date,
             started_at, is_timer, bill_rate, cost_rate, notes, pay_period_id, billable)
          VALUES ($1,$2,'service_ticket',$3,$4,$5,$6,$7,true,$8,$9,$10,$11,$12) RETURNING id`,
-        [
-          memberId,
-          companyId,
-          body.ticketId,
-          body.workRoleId,
-          body.workTypeId,
-          workDate,
-          now,
-          pricing.billRate,
-          pricing.costRate,
-          body.notes ?? null,
-          await periodIdFor(client, workDate),
-          pricing.billTime,
-        ],
-      );
-      const full = await client.query<TimeRow>(`${SELECT_TIME} WHERE id = $1`, [rows[0]?.id]);
-      return full.rows[0] as TimeRow;
-    });
-    return reply.status(201).send(toEntry(entry));
-  });
+          [
+            memberId,
+            companyId,
+            body.ticketId,
+            body.workRoleId,
+            body.workTypeId,
+            workDate,
+            now,
+            pricing.billRate,
+            pricing.costRate,
+            body.notes ?? null,
+            await periodIdFor(client, workDate),
+            pricing.billTime,
+          ],
+        );
+        const full = await client.query<TimeRow>(`${SELECT_TIME} WHERE id = $1`, [rows[0]?.id]);
+        return full.rows[0] as TimeRow;
+      });
+      return reply.status(201).send(toEntry(entry));
+    },
+  );
 
-  app.post("/timer/stop", async (req) => {
+  app.post("/timer/stop", { config: { perm: "timekeeping.time.write_own" } }, async (req) => {
     const body = timerStopSchema.parse(req.body ?? {});
     const memberId = req.memberId as number;
     const entry = await withActor(app.pool, memberId, async (client) => {
@@ -281,7 +291,7 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
     return toEntry(entry);
   });
 
-  app.post("/", async (req, reply) => {
+  app.post("/", { config: { perm: "timekeeping.time.write_own" } }, async (req, reply) => {
     const body = timeEntryCreateSchema.parse(req.body);
     const memberId = req.memberId as number;
     const entry = await withActor(app.pool, memberId, async (client) => {
@@ -333,7 +343,7 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** Voiding keeps the row for the audit trail; hard deletes of time are not offered. */
-  app.delete("/:id", async (req, reply) => {
+  app.delete("/:id", { config: { perm: "timekeeping.time.write_own" } }, async (req, reply) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     const memberId = req.memberId as number;
     await withActor(app.pool, memberId, async (client) => {
@@ -344,8 +354,11 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
       const row = rows[0];
       if (!row || row.status === "void")
         throw new HttpError(404, "Not Found", `Time entry ${id} not found`);
-      // Until permissions are enforced (M1), only the owner may void an entry.
-      if (Number(row.member_id) !== memberId) {
+      // Anyone with write_own removes their own; removing someone else's needs write_all.
+      if (
+        Number(row.member_id) !== memberId &&
+        !req.permissions.has("timekeeping.time.write_all")
+      ) {
         throw new HttpError(403, "Forbidden", "You can only remove your own time entries");
       }
       await client.query(

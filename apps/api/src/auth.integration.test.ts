@@ -74,6 +74,11 @@ suite("local authentication (integration)", () => {
       "INSERT INTO iam.member_credential (member_id, password_hash) VALUES ($1,$2)",
       [memberId, await hashPassword("Temp-Password-123")],
     );
+    await pool.query(
+      `INSERT INTO iam.member_role (member_id, role_id)
+       SELECT $1, id FROM iam.role WHERE name = 'Technician'`,
+      [memberId],
+    );
     app = buildApp({ pool, config: config() });
   });
 
@@ -116,7 +121,9 @@ suite("local authentication (integration)", () => {
     expect(res.json().stage).toBe("password_change");
     // Half-signed-in sessions cannot reach business routes.
     expect((await c.call("GET", "/api/v1/companies")).statusCode).toBe(403);
-    expect((await c.call("GET", "/api/v1/auth/me")).json().member.identifier).toBe("tech1");
+    const partial = (await c.call("GET", "/api/v1/auth/me")).json();
+    expect(partial.member.identifier).toBe("tech1");
+    expect(partial.permissions).toEqual([]); // nothing is revealed before sign-in completes
 
     const weak = await c.call("POST", "/api/v1/auth/password", {
       currentPassword: "Temp-Password-123",
@@ -192,6 +199,10 @@ suite("local authentication (integration)", () => {
     });
     expect(good.json().stage).toBe("ok");
     expect((await again.call("GET", "/api/v1/companies")).statusCode).toBe(200);
+    // The Technician role's grants come back with the session so the UI can hide what is not allowed.
+    const me = (await again.call("GET", "/api/v1/auth/me")).json();
+    expect(me.permissions).toContain("service.ticket.write");
+    expect(me.permissions).not.toContain("timekeeping.period.lock");
   });
 
   it("accepts each recovery code once", async () => {

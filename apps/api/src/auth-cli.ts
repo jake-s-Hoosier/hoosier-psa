@@ -1,13 +1,19 @@
 import { assertSafeTarget, checkWriteAccess, isEnvironmentName, readMarker } from "@hoosier/db";
 import pg from "pg";
 import { generateTemporaryPassword, hashPassword } from "./auth/crypto.js";
+import { syncPermissions } from "./auth/permissions.js";
 
 const USAGE = `Usage: auth-cli.ts <command> [identifier]
   set-password <identifier> [--email you@example.com]
                               create or reset a staff login with a one-time temporary password;
                               --email also sets the member's email (imports carry placeholders)
   reset-mfa <identifier>      remove the member's second factor and recovery codes (they enrol again)
-  status                      list members and whether they can sign in
+  grant-role <identifier> <role>
+                              give a member a role (e.g. Administrator, Technician)
+  revoke-role <identifier> <role>
+                              take a role away (the last Administrator cannot be removed)
+  sync-permissions            bring the permission catalogue in step with the code
+  status                      list members, their roles, and whether they can sign in
 Needs APP_ENV and DATABASE_URL. Never touches cw_datawarehouse; production needs go-live approval.`;
 
 function fail(message: string): never {
@@ -24,7 +30,7 @@ async function main(): Promise<void> {
   const positional = args.filter(
     (_, i) => i !== emailFlag && i !== emailFlag + 1 + (emailFlag < 0 ? 1000 : 0),
   );
-  const [command, identifier] = positional;
+  const [command, identifier, roleName] = positional;
   const url = process.env.DATABASE_URL;
   if (!url) fail("DATABASE_URL is required");
   const appEnv = process.env.APP_ENV ?? "";
@@ -46,11 +52,19 @@ async function main(): Promise<void> {
       const { rows } = await pool.query(
         `SELECT m.identifier::text AS identifier, m.email::text AS email, m.is_active AS active,
                 (c.member_id IS NOT NULL) AS has_login, c.must_change_password AS must_change,
-                (c.mfa_enabled_at IS NOT NULL) AS mfa
+                (c.mfa_enabled_at IS NOT NULL) AS mfa,
+                (SELECT string_agg(r.name::text, ', ' ORDER BY r.name)
+                   FROM iam.member_role mr JOIN iam.role r ON r.id = mr.role_id
+                  WHERE mr.member_id = m.id) AS roles
            FROM iam.member m LEFT JOIN iam.member_credential c ON c.member_id = m.id
           ORDER BY m.identifier`,
       );
       console.table(rows);
+      return;
+    }
+    if (command === "sync-permissions") {
+      const result = await syncPermissions(pool);
+      console.log(`Permission catalogue synced: ${result.added} added, ${result.removed} removed.`);
       return;
     }
     if (!identifier) fail(USAGE);
@@ -83,6 +97,43 @@ async function main(): Promise<void> {
       console.log(
         `Temporary password for ${identifier} (shown once, must be changed at first sign-in):\n\n  ${temp}\n`,
       );
+    } else if (command === "grant-role" || command === "revoke-role") {
+      if (!roleName) fail(USAGE);
+      const role = (
+        await pool.query<{ id: string; name: string }>(
+          "SELECT id, name::text AS name FROM iam.role WHERE lower(name) = lower($1)",
+          [roleName],
+        )
+      ).rows[0];
+      if (!role) {
+        const all = await pool.query<{ name: string }>(
+          "SELECT name::text AS name FROM iam.role ORDER BY name",
+        );
+        fail(`No role "${roleName}". Roles: ${all.rows.map((r) => r.name).join(", ")}`);
+      }
+      if (command === "grant-role") {
+        if (!member.is_active) fail("That member is inactive");
+        await pool.query(
+          "INSERT INTO iam.member_role (member_id, role_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+          [member.id, role.id],
+        );
+        console.log(`${identifier} now has the ${role.name} role.`);
+      } else {
+        if (role.name === "Administrator") {
+          const others = await pool.query<{ n: string }>(
+            `SELECT count(*) AS n FROM iam.member_role mr JOIN iam.member m ON m.id = mr.member_id
+              WHERE mr.role_id = $1 AND m.is_active AND m.id <> $2`,
+            [role.id, member.id],
+          );
+          if (Number(others.rows[0]?.n) === 0)
+            fail("Refusing: that would leave no active Administrator");
+        }
+        await pool.query("DELETE FROM iam.member_role WHERE member_id = $1 AND role_id = $2", [
+          member.id,
+          role.id,
+        ]);
+        console.log(`${identifier} no longer has the ${role.name} role.`);
+      }
     } else if (command === "reset-mfa") {
       await pool.query(
         `UPDATE iam.member_credential

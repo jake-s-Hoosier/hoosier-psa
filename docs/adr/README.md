@@ -15,6 +15,7 @@ append-only history: to change a decision, add a new ADR that supersedes the old
 | [0008](0008-quickbooks-desktop-web-connector.md) | QuickBooks Desktop integration via Web Connector | Proposed (pending spike) |
 | [0009](0009-environment-markers-and-write-guards.md) | Environment markers and write guards | Accepted |
 | [0010](0010-local-authentication.md) | Staff authentication with local passwords and TOTP | Accepted |
+| [0011](0011-attachments-in-postgres.md) | Ticket attachments are stored in PostgreSQL | Accepted |
 
 ## Template
 

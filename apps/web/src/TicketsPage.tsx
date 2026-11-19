@@ -1,5 +1,6 @@
 import type { Ticket, TicketNote } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
+import { AttachmentsSection, ResourcesSection } from "./TicketFiles";
 import {
   type Lookups,
   addNote,
@@ -22,7 +23,17 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : "Request failed");
 const today = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "America/Indiana/Indianapolis" });
 
-export function TicketsPage({ onTimerChange }: { onTimerChange: () => void }) {
+export function TicketsPage({
+  onTimerChange,
+  can,
+  memberId,
+}: {
+  onTimerChange: () => void;
+  /** The signed-in member, or null in local dev mode where the API decides who you are. */
+  memberId: number | null;
+  /** Whether the signed-in member holds a permission; the API enforces it regardless. */
+  can: (key: string) => boolean;
+}) {
   const [lookups, setLookups] = useState<Lookups | null>(null);
   const [query, setQuery] = useState("");
   const [state, setState] = useState<"open" | "closed" | "all">("open");
@@ -62,9 +73,11 @@ export function TicketsPage({ onTimerChange }: { onTimerChange: () => void }) {
       <div className="page-header">
         <h2>Service tickets</h2>
         {load.state === "ready" && <span className="muted">{load.total} shown</span>}
-        <button type="button" className="btn primary" onClick={() => setCreating(true)}>
-          New ticket
-        </button>
+        {can("service.ticket.write") && (
+          <button type="button" className="btn primary" onClick={() => setCreating(true)}>
+            New ticket
+          </button>
+        )}
       </div>
       <div className="split">
         <div className="card">
@@ -141,6 +154,8 @@ export function TicketsPage({ onTimerChange }: { onTimerChange: () => void }) {
         </div>
         {selected && lookups && (
           <TicketDetail
+            can={can}
+            memberId={memberId}
             key={selected.id}
             ticket={selected}
             lookups={lookups}
@@ -169,6 +184,8 @@ export function TicketsPage({ onTimerChange }: { onTimerChange: () => void }) {
 }
 
 function TicketDetail(props: {
+  can: (key: string) => boolean;
+  memberId: number | null;
   ticket: Ticket;
   lookups: Lookups;
   onClose: () => void;
@@ -229,7 +246,7 @@ function TicketDetail(props: {
           <select
             className="input"
             value={ticket.statusId}
-            disabled={busy}
+            disabled={busy || !props.can("service.ticket.write")}
             onChange={(e) =>
               run(async () =>
                 props.onChanged(
@@ -250,7 +267,7 @@ function TicketDetail(props: {
           <select
             className="input"
             value={ticket.priorityId}
-            disabled={busy}
+            disabled={busy || !props.can("service.ticket.write")}
             onChange={(e) =>
               run(async () =>
                 props.onChanged(
@@ -268,80 +285,98 @@ function TicketDetail(props: {
         </label>
       </div>
 
-      <h4>Time</h4>
-      <div className="field-row">
-        <label>
-          Role
-          <select
-            className="input"
-            value={roleId}
-            onChange={(e) => setRoleId(Number(e.target.value))}
-          >
-            {lookups.workRoles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Work type
-          <select
-            className="input"
-            value={typeId}
-            onChange={(e) => setTypeId(Number(e.target.value))}
-          >
-            {lookups.workTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <div className="field-row">
-        <button
-          type="button"
-          className="btn primary"
-          disabled={busy || !roleId || !typeId}
-          onClick={() =>
-            run(async () => {
-              await startTimer({ ticketId: ticket.id, workRoleId: roleId, workTypeId: typeId });
-              props.onTimerChange();
-            })
-          }
-        >
-          Start timer
-        </button>
-        <input
-          className="input"
-          inputMode="decimal"
-          placeholder="Hours"
-          aria-label="Hours to log"
-          value={hours}
-          onChange={(e) => setHours(e.target.value)}
-        />
-        <button
-          type="button"
-          className="btn"
-          disabled={busy || !(Number(hours) > 0)}
-          onClick={() =>
-            run(async () => {
-              await logTime({
-                ticketId: ticket.id,
-                workRoleId: roleId,
-                workTypeId: typeId,
-                workDate: today(),
-                hours: Number(hours),
-              });
-              setHours("");
-              props.onTimerChange();
-            })
-          }
-        >
-          Log time
-        </button>
-      </div>
+      <ResourcesSection
+        ticketId={ticket.id}
+        lookups={lookups}
+        canEdit={props.can("service.ticket.write")}
+        onError={setError}
+      />
+      <AttachmentsSection
+        ticketId={ticket.id}
+        memberId={props.memberId}
+        canEdit={props.can("service.ticket.write")}
+        canDeleteAny={props.can("service.ticket.delete")}
+        onError={setError}
+      />
+
+      {props.can("timekeeping.time.write_own") && (
+        <>
+          <h4>Time</h4>
+          <div className="field-row">
+            <label>
+              Role
+              <select
+                className="input"
+                value={roleId}
+                onChange={(e) => setRoleId(Number(e.target.value))}
+              >
+                {lookups.workRoles.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Work type
+              <select
+                className="input"
+                value={typeId}
+                onChange={(e) => setTypeId(Number(e.target.value))}
+              >
+                {lookups.workTypes.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="field-row">
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy || !roleId || !typeId}
+              onClick={() =>
+                run(async () => {
+                  await startTimer({ ticketId: ticket.id, workRoleId: roleId, workTypeId: typeId });
+                  props.onTimerChange();
+                })
+              }
+            >
+              Start timer
+            </button>
+            <input
+              className="input"
+              inputMode="decimal"
+              placeholder="Hours"
+              aria-label="Hours to log"
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn"
+              disabled={busy || !(Number(hours) > 0)}
+              onClick={() =>
+                run(async () => {
+                  await logTime({
+                    ticketId: ticket.id,
+                    workRoleId: roleId,
+                    workTypeId: typeId,
+                    workDate: today(),
+                    hours: Number(hours),
+                  });
+                  setHours("");
+                  props.onTimerChange();
+                })
+              }
+            >
+              Log time
+            </button>
+          </div>
+        </>
+      )}
 
       <h4>Notes</h4>
       {notes === null ? (
@@ -360,40 +395,44 @@ function TicketDetail(props: {
           ))}
         </ul>
       )}
-      <div className="field-row">
-        <select
-          className="input"
-          aria-label="Note type"
-          value={noteKind}
-          onChange={(e) => setNoteKind(e.target.value)}
-        >
-          <option value="discussion">Discussion</option>
-          <option value="internal">Internal</option>
-          <option value="resolution">Resolution</option>
-        </select>
-      </div>
-      <textarea
-        className="input"
-        rows={3}
-        placeholder="Add a note"
-        aria-label="Note text"
-        value={noteBody}
-        onChange={(e) => setNoteBody(e.target.value)}
-      />
-      <button
-        type="button"
-        className="btn"
-        disabled={busy || !noteBody.trim()}
-        onClick={() =>
-          run(async () => {
-            await addNote(ticket.id, { kind: noteKind, body: noteBody });
-            setNoteBody("");
-            loadNotes();
-          })
-        }
-      >
-        Add note
-      </button>
+      {props.can("service.ticket.write") && (
+        <>
+          <div className="field-row">
+            <select
+              className="input"
+              aria-label="Note type"
+              value={noteKind}
+              onChange={(e) => setNoteKind(e.target.value)}
+            >
+              <option value="discussion">Discussion</option>
+              <option value="internal">Internal</option>
+              <option value="resolution">Resolution</option>
+            </select>
+          </div>
+          <textarea
+            className="input"
+            rows={3}
+            placeholder="Add a note"
+            aria-label="Note text"
+            value={noteBody}
+            onChange={(e) => setNoteBody(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || !noteBody.trim()}
+            onClick={() =>
+              run(async () => {
+                await addNote(ticket.id, { kind: noteKind, body: noteBody });
+                setNoteBody("");
+                loadNotes();
+              })
+            }
+          >
+            Add note
+          </button>
+        </>
+      )}
     </aside>
   );
 }

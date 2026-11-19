@@ -1,5 +1,6 @@
 import type { Pool } from "@hoosier/db";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import { type RoutePermission, loadPermissions, satisfies } from "./auth/permissions.js";
 import {
   ABSOLUTE_MS,
   type AuthStage,
@@ -16,12 +17,14 @@ import {
 } from "./auth/session.js";
 import type { Config } from "./config.js";
 import { HttpError, errorHandler } from "./errors.js";
+import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { companyRoutes } from "./routes/companies.js";
 import { healthRoutes } from "./routes/health.js";
 import { lookupRoutes } from "./routes/lookups.js";
 import { payPeriodRoutes } from "./routes/pay-periods.js";
 import { systemRoutes } from "./routes/system.js";
+import { ticketFileRoutes } from "./routes/ticket-files.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { timeRoutes } from "./routes/time.js";
 import { timesheetRoutes } from "./routes/timesheets.js";
@@ -33,6 +36,11 @@ declare module "fastify" {
   }
   interface FastifyInstance {
     pool: Pool;
+    routeTable: Array<{ method: string; url: string; perm: RoutePermission | undefined }>;
+  }
+  interface FastifyContextConfig {
+    /** What the route requires; see RoutePermission. */
+    perm?: RoutePermission;
   }
 }
 
@@ -62,6 +70,32 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
   app.decorateRequest("memberId", null);
   app.decorateRequest("authStage", null);
   app.decorateRequest("authMfa", false);
+  app.decorateRequest("permissions", undefined as unknown as ReadonlySet<string>);
+
+  // Every route must declare what it requires (config.perm). The table is kept so a test can prove it.
+  const routeTable: Array<{ method: string; url: string; perm: RoutePermission | undefined }> = [];
+  app.decorate("routeTable", routeTable);
+  app.addHook("onRoute", (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    for (const method of methods) {
+      routeTable.push({ method, url: route.url, perm: route.config?.perm });
+    }
+  });
+
+  /** Loads the caller's permissions and refuses the request unless the route's requirement is met. */
+  async function authorize(req: FastifyRequest): Promise<void> {
+    if (req.is404 || !req.url.startsWith("/api/v1/") || req.memberId === null) return;
+    const perm = req.routeOptions.config?.perm;
+    req.permissions = await loadPermissions(app.pool, req.memberId);
+    if (perm === undefined) {
+      req.log.error({ url: req.url }, "route declares no permission; refusing");
+      throw new HttpError(403, "Forbidden", "This route has no permission rule");
+    }
+    if (!satisfies(perm, req.permissions)) {
+      const needed = typeof perm === "string" ? perm : perm.join(" or ");
+      throw new HttpError(403, "Forbidden", `You do not have permission: ${needed}`);
+    }
+  }
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler((_req, reply) => {
     void reply
@@ -87,6 +121,7 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
       req.memberId = id;
       req.authStage = "ok";
       req.authMfa = true;
+      await authorize(req);
       return;
     }
     if (!authSecret) throw new Error("AUTH_SECRET missing");
@@ -117,6 +152,7 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
     req.memberId = member.id;
     req.authStage = stage;
     req.authMfa = claims.mfa;
+    if (stage === "ok") await authorize(req);
     // Sliding idle timeout: re-issue while active, never beyond the absolute limit.
     if (stage === "ok" && now - claims.seen > 60_000) {
       setSessionCookie(
@@ -157,9 +193,11 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
       writable: config.DB_WRITE_MODE === "read_write",
     });
   }
+  app.register(adminRoutes, { prefix: "/api/v1/admin" });
   app.register(companyRoutes, { prefix: "/api/v1/companies" });
   app.register(lookupRoutes, { prefix: "/api/v1/lookups" });
   app.register(ticketRoutes, { prefix: "/api/v1/tickets" });
+  app.register(ticketFileRoutes, { prefix: "/api/v1/tickets" });
   app.register(timeRoutes, { prefix: "/api/v1/time-entries" });
   app.register(timesheetRoutes, { prefix: "/api/v1/timesheets" });
   app.register(payPeriodRoutes, { prefix: "/api/v1/pay-periods" });

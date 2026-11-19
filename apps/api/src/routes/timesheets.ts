@@ -9,7 +9,7 @@ import { HttpError } from "../errors.js";
  * them fails with 422 rather than changing history.
  */
 export const timesheetRoutes: FastifyPluginAsync = async (app) => {
-  app.post("/submit", async (req) => {
+  app.post("/submit", { config: { perm: "timekeeping.time.write_own" } }, async (req) => {
     const body = dateRangeSchema.parse(req.body);
     const memberId = req.memberId as number;
     return withActor(app.pool, memberId, async (client) => {
@@ -30,7 +30,7 @@ export const timesheetRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post("/recall", async (req) => {
+  app.post("/recall", { config: { perm: "timekeeping.time.write_own" } }, async (req) => {
     const body = dateRangeSchema.parse(req.body);
     const memberId = req.memberId as number;
     return withActor(app.pool, memberId, async (client) => {
@@ -43,10 +43,17 @@ export const timesheetRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  // Until permission enforcement lands (M1), any signed-in staff member can approve.
-  app.post("/approve", async (req) => {
+  // Needs timekeeping.time.approve. Nobody approves their own time: someone else signs it off.
+  app.post("/approve", { config: { perm: "timekeeping.time.approve" } }, async (req) => {
     const body = timesheetApproveSchema.parse(req.body);
     const approverId = req.memberId as number;
+    if (body.memberId === approverId) {
+      throw new HttpError(
+        403,
+        "Forbidden",
+        "You cannot approve your own time; ask another approver",
+      );
+    }
     return withActor(app.pool, approverId, async (client) => {
       const { rowCount } = await client.query(
         `UPDATE timekeeping.time_entry
@@ -59,7 +66,7 @@ export const timesheetRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** Per-member status counts for a range: the approval screen's starting point. */
-  app.get("/summary", async (req) => {
+  app.get("/summary", { config: { perm: "timekeeping.time.read_all" } }, async (req) => {
     const q = dateRangeSchema.parse(req.query);
     const { rows } = await app.pool.query<{
       member_id: string;

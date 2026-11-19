@@ -12,7 +12,7 @@ Milestones are defined in [07-roadmap.md](07-roadmap.md).
 | Companies, sites, contacts | companies 4,462; contacts 7,845; contact phones 4,065; sites 792 | `crm.*`; contact channels normalised to E.164 for caller match | M1 | schema |
 | Company/contact notes and alerts | n/a (notes not mirrored) | `crm.company_note` with alert flag | M1 | schema |
 | Service tickets, boards, statuses, priorities, types | tickets 19,079; notes 24,647; boards 10 | `service.*`; ticket number = CW number | M1 | schema |
-| Ticket resources and ownership | resources column on tickets | `service.ticket_resource`, `owner_member_id` | M1 | schema |
+| Ticket resources and ownership | resources column on tickets | `service.ticket_resource`, `owner_member_id` | M1 | resources add/remove done |
 | Detailed time capture | time entries 43,423 | `timekeeping.time_entry`: timers, rate snapshots, approval, locking | M1 | schema |
 | Payroll hours export | spreadsheet + manual Justworks entry | Pay periods, overtime allocation, CSV export ([04](04-time-and-payroll.md)) | M1 | rules coded |
 | Dispatch / scheduling | schedule entries 77,315 | `dispatch.*`: schedule entries, board, calendar sync | M3 | planned |
@@ -34,7 +34,7 @@ Milestones are defined in [07-roadmap.md](07-roadmap.md).
 | Configurations (assets) | configurations 31 | Light asset register per site; low current use | M3 | planned |
 | Activities / CRM tasks | activities 49,335 | Tasks and activity log on companies/opportunities | M4 | planned |
 | Work roles and work types | roles 11; types 33 | `catalog.work_role`, `catalog.work_type` | M1 | schema |
-| Attachments on tickets/projects | via API | Object storage with metadata table | M1 | planned |
+| Attachments on tickets/projects | via API | Metadata table plus bytes in PostgreSQL ([ADR 0011](adr/0011-attachments-in-postgres.md)); tickets done, projects later; CW files not yet imported | M1 | tickets done |
 | Project post-mortems | post_mortems 1,461 + 7 detail tables | Native project close-out analytics | M3 | planned |
 | Email-to-ticket | n/a | Inbound mailbox via Microsoft Graph | M1 | planned |
 | Reporting | many ad-hoc SQL reports on the mirror | Keep SQL reporting on Postgres; add curated views | M1+ | planned |

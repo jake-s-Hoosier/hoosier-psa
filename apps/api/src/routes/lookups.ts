@@ -2,8 +2,8 @@ import type { FastifyPluginAsync } from "fastify";
 
 /** Read-only reference data the UI needs to fill forms: boards with statuses, priorities, work roles and types. */
 export const lookupRoutes: FastifyPluginAsync = async (app) => {
-  app.get("/", async () => {
-    const [boards, statuses, priorities, roles, types] = await Promise.all([
+  app.get("/", { config: { perm: "authenticated" } }, async () => {
+    const [boards, statuses, priorities, roles, types, members] = await Promise.all([
       app.pool.query<{ id: string; name: string }>(
         "SELECT id, name::text FROM service.board WHERE is_active ORDER BY name",
       ),
@@ -26,6 +26,16 @@ export const lookupRoutes: FastifyPluginAsync = async (app) => {
       app.pool.query<{ id: string; name: string; bill_time: string }>(
         "SELECT id, name::text, bill_time FROM catalog.work_type WHERE is_active ORDER BY name",
       ),
+      app.pool.query<{
+        id: string;
+        identifier: string;
+        first_name: string;
+        last_name: string;
+        is_field_tech: boolean;
+      }>(
+        `SELECT id, identifier::text, first_name, last_name, is_field_tech FROM iam.member
+          WHERE is_active ORDER BY last_name, first_name`,
+      ),
     ]);
     return {
       boards: boards.rows.map((b) => ({
@@ -42,6 +52,12 @@ export const lookupRoutes: FastifyPluginAsync = async (app) => {
       })),
       priorities: priorities.rows.map((p) => ({ id: Number(p.id), name: p.name, color: p.color })),
       workRoles: roles.rows.map((r) => ({ id: Number(r.id), name: r.name })),
+      members: members.rows.map((m) => ({
+        id: Number(m.id),
+        identifier: m.identifier,
+        name: `${m.first_name} ${m.last_name}`,
+        isFieldTech: m.is_field_tech,
+      })),
       workTypes: types.rows.map((t) => ({ id: Number(t.id), name: t.name, billTime: t.bill_time })),
     };
   });

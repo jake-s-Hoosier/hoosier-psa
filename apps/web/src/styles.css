@@ -408,3 +408,47 @@ textarea.input {
   gap: 4px;
   padding-top: var(--space-4);
 }
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+.plain-list {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+.perm-group {
+  border: 1px solid var(--border, #d8dce3);
+  border-radius: 6px;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+.perm-group legend {
+  text-transform: capitalize;
+  font-weight: 600;
+  padding: 0 0.25rem;
+}
+.perm {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+.link[aria-current="true"] {
+  font-weight: 700;
+}

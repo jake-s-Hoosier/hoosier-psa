@@ -31,6 +31,10 @@ suite("companies API (integration)", () => {
        VALUES ('api-test', 'Api', 'Test', 'api@example.com') RETURNING id`,
     );
     memberId = Number(m.rows[0]?.id);
+    await pool.query(
+      `INSERT INTO iam.member_role (member_id, role_id)
+       SELECT m.id, r.id FROM iam.member m, iam.role r WHERE r.name = 'Administrator'`,
+    );
     const s = await pool.query<{ id: string }>(
       "SELECT id FROM crm.company_status WHERE name = 'Active'",
     );

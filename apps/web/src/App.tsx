@@ -1,5 +1,6 @@
 import type { TimeEntry } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
+import { AdminPage } from "./AdminPage";
 import { CompaniesPage } from "./CompaniesPage";
 import { LoginPage } from "./LoginPage";
 import { TicketsPage } from "./TicketsPage";
@@ -15,13 +16,14 @@ import {
 } from "./api";
 
 const NAV = [
-  { id: "companies", label: "Companies", ready: true },
-  { id: "tickets", label: "Service tickets", ready: true },
+  { id: "companies", label: "Companies", ready: true, perm: "crm.company.read" },
+  { id: "tickets", label: "Service tickets", ready: true, perm: "service.ticket.read" },
   { id: "time", label: "Time", ready: false },
   { id: "dispatch", label: "Dispatch", ready: false },
   { id: "projects", label: "Projects", ready: false },
   { id: "agreements", label: "Agreements", ready: false },
   { id: "billing", label: "Billing", ready: false },
+  { id: "admin", label: "Access", ready: true, perm: "iam.manage" },
 ] as const;
 
 type PageId = (typeof NAV)[number]["id"];
@@ -102,22 +104,28 @@ export function App() {
 }
 
 function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }) {
-  const [page, setPage] = useState<PageId>("tickets");
+  // In local dev mode there is no sign-in, so the UI cannot know; it shows everything and the API decides.
+  const held = me ? new Set(me.permissions) : null;
+  const can = (key: string) => held === null || held.has(key);
+  const visible = (item: (typeof NAV)[number]) => !("perm" in item) || can(item.perm);
+  const firstReady = NAV.find((n) => n.ready && visible(n));
+  const [page, setPage] = useState<PageId>(firstReady?.id ?? "tickets");
   const [timer, setTimer] = useState<TimeEntry | null>(null);
   const refreshTimer = useCallback(() => {
     getTimer()
       .then((r) => setTimer(r.timer))
       .catch(() => {});
   }, []);
+  const canTime = held === null || held.has("timekeeping.time.write_own");
   useEffect(() => {
-    refreshTimer();
-  }, [refreshTimer]);
+    if (canTime) refreshTimer();
+  }, [refreshTimer, canTime]);
 
   return (
     <div className="shell">
       <nav className="nav" aria-label="Main">
         <h1>Hoosier PSA</h1>
-        {NAV.map((item) => (
+        {NAV.filter(visible).map((item) => (
           <button
             key={item.id}
             type="button"
@@ -144,8 +152,16 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
         <EnvironmentBanner />
         {timer && <TimerBar timer={timer} onStopped={refreshTimer} />}
         <main className="main">
-          {page === "companies" && <CompaniesPage />}
-          {page === "tickets" && <TicketsPage onTimerChange={refreshTimer} />}
+          {page === "companies" && can("crm.company.read") && <CompaniesPage />}
+          {page === "tickets" && can("service.ticket.read") && (
+            <TicketsPage onTimerChange={refreshTimer} can={can} memberId={me?.member.id ?? null} />
+          )}
+          {page === "admin" && can("iam.manage") && <AdminPage />}
+          {!firstReady && (
+            <div className="state">
+              Your account has no access yet. Ask an administrator for a role.
+            </div>
+          )}
         </main>
       </div>
     </div>

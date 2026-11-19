@@ -6,6 +6,20 @@ the first production release.
 ## [Unreleased]
 
 ### Added
+- Role administration: **Access** screen and `/api/v1/admin/*` (needs `iam.manage`): list roles with effective
+  grants, create custom roles, edit any role's permissions, reset a built-in role to its defaults, delete
+  unused custom roles, set each member's roles, deactivate or reactivate members (signs them out). A change that
+  would leave nobody able to manage roles is refused. Migration 0010 audits role grants, role membership and
+  ticket resources (composite-key tables) with the acting member.
+- Ticket resources (add and remove people on a ticket) and file attachments (upload up to 25 MB, list, download as
+  attachment only, remove; [ADR 0011](docs/adr/0011-attachments-in-postgres.md), migration 0010). Lookups now include active members.
+- Permission enforcement: every `/api/v1` route declares the permission it needs and is refused without it
+  (deny by default, proven by a route-table test). Permissions are the union of a member's roles, using
+  stored `iam.role_permission` rows when present and the code defaults otherwise. Own versus all scoping for
+  time entries, approval needs `timekeeping.time.approve` and never your own time, `/auth/me` returns the
+  member's permissions, and the web app hides navigation and actions they cannot use. The API syncs the
+  permission catalogue at startup (writable environments only); the admin CLI gained `grant-role`,
+  `revoke-role` (never the last Administrator), `sync-permissions` and roles in `status`.
 - Staff sign-in without Entra (ADR 0010, supersedes 0005; migration 0009): local password (scrypt) plus
   authenticator-app code, recovery codes, forced first-login password change and MFA enrolment, signed
   session cookies re-checked against the database each request, CSRF header, sign-in throttling, admin CLI

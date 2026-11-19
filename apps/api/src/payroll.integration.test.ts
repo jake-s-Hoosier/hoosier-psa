@@ -37,6 +37,10 @@ suite("timesheets and payroll API (integration)", () => {
     bob = await id(
       "INSERT INTO iam.member (identifier, first_name, last_name, email) VALUES ('BJones','Bob','Jones','b@example.com') RETURNING id",
     );
+    await pool.query(
+      `INSERT INTO iam.member_role (member_id, role_id)
+       SELECT m.id, r.id FROM iam.member m, iam.role r WHERE r.name = 'Administrator'`,
+    );
     const company = await id(
       "INSERT INTO crm.company (identifier, name, status_id) VALUES ('ACME','Acme',(SELECT id FROM crm.company_status WHERE name='Active')) RETURNING id",
     );
@@ -138,7 +142,14 @@ suite("timesheets and payroll API (integration)", () => {
       const sub = await post(m, "/api/v1/timesheets/submit", { from, to });
       expect(sub.statusCode).toBe(200);
     }
-    const approve = await post(jane, "/api/v1/timesheets/approve", {
+    // Nobody approves their own time: bob approves jane's.
+    const own = await post(jane, "/api/v1/timesheets/approve", {
+      memberId: jane,
+      from: "2026-11-01",
+      to: "2026-11-30",
+    });
+    expect(own.statusCode).toBe(403);
+    const approve = await post(bob, "/api/v1/timesheets/approve", {
       memberId: jane,
       from: "2026-11-01",
       to: "2026-11-30",

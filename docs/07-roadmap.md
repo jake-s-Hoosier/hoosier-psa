@@ -15,11 +15,11 @@ validation; web shell; documentation set and ADRs.
 
 ## M1. Operations core: CRM, tickets, time (about 4-6 weeks)
 
-- Local sign-in (password + authenticator code, done); permission enforcement on every route; role administration UI.
+- Local sign-in (password + authenticator code, done); permission enforcement on every route (done); role administration (done: Access screen and API).
 - **CW import tool** (re-runnable, id-preserving): members, lookups, companies, sites, contacts and channels,
   catalog, boards and statuses, tickets, ticket notes, time entries. Shadow environment refreshed nightly ([11](11-cw-migration.md)).
 - CRM: company, site and contact CRUD, search (name, phone, email), notes and alerts, caller lookup by E.164 number.
-- Service: board and list views, ticket detail, notes, resources, status and priority changes, aging, attachments, inbound email to ticket.
+- Service: board and list views, ticket detail, notes, resources (done), status and priority changes, aging, attachments (done), inbound email to ticket.
 - Time: timer, manual entry, day and week timesheet, submit and approve, pay-period lock, **payroll export**
   to replace the spreadsheet.
 - Reconciliation reports: record counts and hours by member and period versus CW.

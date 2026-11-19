@@ -43,6 +43,12 @@ suite("tickets and time API (integration)", () => {
       `INSERT INTO iam.member (identifier, first_name, last_name, email)
        VALUES ('tech2', 'Tech', 'Two', 't2@example.com') RETURNING id`,
     );
+    await pool.query(
+      `INSERT INTO iam.member_role (member_id, role_id)
+       SELECT m.id, r.id FROM iam.member m, iam.role r
+       WHERE (r.name = 'Administrator' AND m.id <> $1) OR (r.name = 'Technician' AND m.id = $1)`,
+      [otherMemberId],
+    );
     companyId = await id(
       `INSERT INTO crm.company (identifier, name, status_id)
        VALUES ('ACME', 'Acme', (SELECT id FROM crm.company_status WHERE name = 'Active')) RETURNING id`,

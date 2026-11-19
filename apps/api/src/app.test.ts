@@ -10,6 +10,13 @@ function stub() {
   const pool = {
     query: async (sql: string) => {
       queries.push(sql);
+      // The permission lookup runs for every authenticated request; answer it with an administrator.
+      if (sql.includes("iam.member_role")) {
+        return {
+          rows: [{ role_name: "Administrator", is_system: true, permission_key: null }],
+          rowCount: 1,
+        };
+      }
       return { rows: [], rowCount: 0 };
     },
   } as unknown as Pool;
@@ -82,7 +89,8 @@ describe("read-only mode", () => {
       expect(res.statusCode, `${method} ${url}`).toBe(403);
       expect(res.json().title).toBe("Read-only mode");
     }
-    expect(queries).toEqual([]);
+    // Nothing but the read-only permission lookup may reach the database.
+    expect(queries.filter((q) => !q.includes("iam.member_role"))).toEqual([]);
   });
 
   it("still serves reads and reports the environment", async () => {
