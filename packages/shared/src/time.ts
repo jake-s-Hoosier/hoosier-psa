@@ -37,6 +37,8 @@ export interface RoundingRule {
   mode: "up" | "nearest" | "down";
   /** Smallest billable block in minutes (applied before rounding), e.g. 30. */
   minimumMinutes?: number;
+  /** Largest billable block in minutes (applied after rounding); 0 or undefined means no cap. */
+  maximumMinutes?: number;
 }
 
 /** Converts actual hours into billed hours under a rounding rule. Zero stays zero. */
@@ -59,6 +61,7 @@ export function billedHours(actualHours: number, rule: RoundingRule): number {
           : Math.round(snapped);
     minutes = blocks * rule.incrementMinutes;
   }
+  if (rule.maximumMinutes && minutes > rule.maximumMinutes) minutes = rule.maximumMinutes;
   return Math.round((minutes / 60) * 100) / 100;
 }
 
@@ -170,4 +173,61 @@ export function allocateOvertime(
     });
   }
   return result;
+}
+
+/**
+ * Rounding applied when none is configured on the agreement or company.
+ * PLACEHOLDER pending the billing decisions in docs/05 (CW rounds per agreement/company setting).
+ */
+export const DEFAULT_BILLING_ROUNDING: RoundingRule = { incrementMinutes: 15, mode: "up" };
+
+// ---------------------------------------------------------------------------------------------
+// Work type pricing (migration 0008)
+// ---------------------------------------------------------------------------------------------
+
+export interface WorkTypePricing {
+  rateType: "multiplier" | "custom" | "adjustment";
+  rateMultiplier: number;
+  customRate: number | null;
+  rateAdjustment: number | null;
+  hoursMin: number;
+  hoursMax: number;
+  /** Rounding increment in hours, if the work type defines one. */
+  roundBillingHoursTo: number | null;
+}
+
+/**
+ * Hourly bill rate: a multiplier of the work role rate, a custom absolute rate (the role rate is
+ * ignored), or the role rate plus an adjustment. Rounded to cents, never negative.
+ */
+export function workTypeBillRate(roleRate: number, wt: WorkTypePricing): number {
+  let rate: number;
+  switch (wt.rateType) {
+    case "custom":
+      if (wt.customRate === null) throw new RangeError("custom work type has no rate");
+      rate = wt.customRate;
+      break;
+    case "adjustment":
+      if (wt.rateAdjustment === null) throw new RangeError("adjustment work type has no amount");
+      rate = roleRate + wt.rateAdjustment;
+      break;
+    default:
+      rate = roleRate * wt.rateMultiplier;
+  }
+  return Math.max(0, Math.round(rate * 100) / 100);
+}
+
+/**
+ * Billing rule for an entry: the work type's minimum and maximum hours and its own increment if it
+ * has one, otherwise the supplied default increment.
+ */
+export function roundingRuleFor(wt: WorkTypePricing, fallback: RoundingRule): RoundingRule {
+  return {
+    incrementMinutes: wt.roundBillingHoursTo
+      ? wt.roundBillingHoursTo * 60
+      : fallback.incrementMinutes,
+    mode: fallback.mode,
+    minimumMinutes: wt.hoursMin > 0 ? wt.hoursMin * 60 : fallback.minimumMinutes,
+    maximumMinutes: wt.hoursMax > 0 ? wt.hoursMax * 60 : fallback.maximumMinutes,
+  };
 }

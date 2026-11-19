@@ -1,0 +1,457 @@
+import { ensureMarker, migrateUp } from "@hoosier/db";
+import pg from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { prioritySortOrder, runImport } from "./import.js";
+import { createSourcePool } from "./source.js";
+
+describe("prioritySortOrder", () => {
+  it("sorts numbered priorities first and everything else last", () => {
+    expect(prioritySortOrder("Priority 1 - Critical")).toBe(1);
+    expect(prioritySortOrder("Priority 4 - Low")).toBe(4);
+    expect(prioritySortOrder("Normal")).toBe(9);
+  });
+});
+
+describe("createSourcePool", () => {
+  it("refuses a source that is the same database as the target", () => {
+    expect(() =>
+      createSourcePool(
+        "postgres://u@h:5432/cw_datawarehouse",
+        "postgres://u@h:5432/cw_datawarehouse",
+      ),
+    ).toThrow(/same database/);
+  });
+});
+
+const adminUrl = process.env.TEST_DATABASE_URL;
+const suite = adminUrl ? describe : describe.skip;
+
+suite("import (integration)", () => {
+  const srcName = `hoosier_imp_src_${process.pid}`;
+  const tgtName = `hoosier_imp_tgt_${process.pid}`;
+  let admin: pg.Pool;
+  let srcAdmin: pg.Pool;
+  let source: pg.Pool;
+  let target: pg.Pool;
+  let targetUrl: string;
+  let sourceUrl: string;
+
+  const urlFor = (db: string) => {
+    const u = new URL(adminUrl as string);
+    u.pathname = `/${db}`;
+    return u.toString();
+  };
+
+  const run = (over: { appEnv?: "shadow" | "production" | "development"; dryRun?: boolean } = {}) =>
+    runImport({
+      source,
+      target,
+      targetUrl,
+      appEnv: over.appEnv ?? "shadow",
+      dryRun: over.dryRun ?? false,
+    });
+
+  beforeAll(async () => {
+    admin = new pg.Pool({ connectionString: adminUrl, max: 1 });
+    for (const n of [srcName, tgtName]) {
+      await admin.query(`DROP DATABASE IF EXISTS ${n}`);
+      await admin.query(`CREATE DATABASE ${n}`);
+    }
+    sourceUrl = urlFor(srcName);
+    targetUrl = urlFor(tgtName);
+
+    // A miniature copy of the warehouse tables the importer reads.
+    srcAdmin = new pg.Pool({ connectionString: sourceUrl, max: 1 });
+    await srcAdmin.query(`
+      CREATE SCHEMA production;
+      CREATE TABLE production.members (id int PRIMARY KEY, identifier text, first_name text, last_name text,
+        inactive_flag boolean, hourly_cost numeric);
+      CREATE TABLE production.companies (id int PRIMARY KEY, name text, identifier text, phone_number text,
+        fax_number text, website text, territory_name text, account_number text, date_acquired date,
+        annual_revenue numeric, number_of_employees int, status_name text, lead_flag boolean,
+        is_vendor_flag boolean, deleted_flag boolean, lead_source text, default_contact_id int,
+        billing_contact_id int, site_id int, billing_site_id int);
+      CREATE TABLE production.service_tickets (id int PRIMARY KEY, summary text, company_id int, board_id int,
+        board_name text, status_id int, status_name text, priority_id int, priority_name text, type_id int,
+        type_name text, source_id int, source_name text, assigned_to text, contact_name text, date_entered timestamp,
+        date_closed timestamp, closed_flag boolean, budget_hours numeric, billing_method text,
+        customer_updated_flag boolean, last_updated timestamp);
+      CREATE TABLE production.time_entries (id int PRIMARY KEY, company_id int, charge_to_id int,
+        charge_to_type text, member_id int, time_start timestamp, time_end timestamp, hours_billed numeric,
+        actual_hours numeric, billable_option text, hourly_rate numeric, notes text, date_entered date);
+
+      CREATE TABLE production.boards (id int PRIMARY KEY, name text);
+      CREATE TABLE production.priorities (id int PRIMARY KEY, name text, color text, sort_order int);
+      CREATE TABLE production.board_statuses (status_id int PRIMARY KEY, board_id int, status_name text,
+        sort_order int, closed_status_flag boolean, inactive_flag boolean);
+      CREATE TABLE production.work_roles (id int PRIMARY KEY, name text, hourly_rate numeric, inactive_flag boolean);
+      CREATE TABLE production.work_types (id int PRIMARY KEY, name text, bill_time text, rate_type text, rate numeric,
+        hours_min numeric, hours_max numeric, round_billing_hours_to numeric, inactive_flag boolean);
+      CREATE TABLE production.site_addresses (site_id int PRIMARY KEY, company_id int, site_name text, address text);
+      CREATE TABLE production.contacts (id int PRIMARY KEY, first_name text, last_name text, full_name text,
+        company_id int, site_id int, title text, department_name text, email text, email2 text, email3 text,
+        default_email text, inactive_flag boolean, do_not_solicit_flag boolean, unsubscribe_flag boolean,
+        phone_number text, phone_ext text);
+      CREATE TABLE production.contact_phones (contact_id int, type text, raw text, phone10 text, default_flag boolean);
+      CREATE TABLE production.service_ticket_notes (note_id int PRIMARY KEY, ticket_id int, note_text text,
+        detail_description_flag boolean, resolution_flag boolean, internal_analysis_flag boolean,
+        internal_flag boolean, member_identifier text, date_created timestamp);
+
+      INSERT INTO production.boards VALUES (1, 'Service Desk');
+      INSERT INTO production.priorities VALUES (20, 'Priority 2 - High', '#ea580c', 2), (21, 'Priority 3 - Medium', 'bad', 3);
+      INSERT INTO production.board_statuses VALUES (100, 1, 'New', 1, false, false), (101, 1, 'Closed', 9, true, false);
+      INSERT INTO production.work_roles VALUES (1, 'Technician', 115, false), (2, 'Senior Tech', 147, false);
+      INSERT INTO production.work_types VALUES
+        (1, 'Onsite - Service', 'Billable', 'Custom', 147, 1, 0, NULL, false),
+        (2, 'Internal', 'DoNotBill', 'Multiplier', 0, 0, 0, NULL, false),
+        (3, 'After Hours', 'Billable', 'Multiplier', 1.5, 0, 0, 0.25, false),
+        (4, 'Dispatch', 'Billable', 'Custom', 90, 0, 1, NULL, true);
+      INSERT INTO production.site_addresses VALUES
+        (7, 10, 'Main Office', '8243 Hall Road Suite 102, Utica, MI 48317'),
+        (8, 10, 'Main Office', '15195 N Pointe Blvd, Noblesville, IN 46060-1234'),
+        (9, 10, 'Annex', 'somewhere with no commas'),
+        (10, 999, 'Orphan', '1 Nowhere Rd, X, IN 46000');
+      INSERT INTO production.contacts VALUES
+        (200, 'Pat', 'Lee', 'Pat Lee', 10, 7, 'Owner', 'Admin', 'pat@acme.test', 'Pat.Alt@acme.test', 'not-an-email', 'pat.alt@acme.test', false, false, true, NULL, NULL),
+        (201, 'Sam', 'Roe', 'Sam Roe', 10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, true, false, false, '317-555-0111 x9', NULL),
+        (202, 'Sam', 'Roe', 'Sam Roe', 10, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, false, false, NULL, NULL),
+        (203, 'No', 'Company', 'No Company', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, false, false, NULL, NULL);
+      INSERT INTO production.contact_phones VALUES
+        (200, 'Mobile', '(317) 555-0100', '3175550100', true),
+        (200, 'Direct', '317.555.0100', '3175550100', false),
+        (200, 'Work Landline', '555-01', NULL, false);
+      INSERT INTO production.service_ticket_notes VALUES
+        (1, 500, 'Door will not latch', true, false, false, false, 'JSmith', '2026-01-05 09:00'),
+        (2, 500, 'Replaced strike plate', false, true, false, false, 'JSmith', '2026-01-05 10:30'),
+        (3, 500, 'Customer called back', false, false, false, false, 'ghost', '2026-01-05 11:00'),
+        (4, 500, 'tech only', false, false, true, false, NULL, '2026-01-05 11:30'),
+        (5, 500, '   ', false, false, false, false, 'JSmith', '2026-01-05 12:00'),
+        (6, 503, 'on a skipped ticket', false, false, false, false, 'JSmith', '2026-01-09 11:00');
+
+      INSERT INTO production.members VALUES
+        (1, 'JSmith', 'Jane', 'Smith', false, 55), (2, 'BJones', 'Bob', 'Jones', true, 40), (3, NULL, 'No', 'Ident', false, 0);
+      INSERT INTO production.companies (id, name, identifier, status_name, deleted_flag, phone_number) VALUES
+        (10, 'Acme Corp', 'ACME', 'Active', false, '317-555-0100'),
+        (11, 'Old Co', 'OLD', 'Former Client', true, NULL),
+        (12, 'No Status Inc', 'NOSTAT', NULL, false, NULL),
+        (13, 'Dup Co', 'acme', 'Active', false, NULL),
+        (14, NULL, 'NONAME', 'Active', false, NULL);
+      INSERT INTO production.service_tickets VALUES
+        (500, 'Door will not latch', 10, 1, 'Service Desk', 100, 'New', 20, 'Priority 2 - High', 30, 'Repair', 40, 'Phone',
+         'JSmith', 'Pat Lee', '2026-01-05 09:00', NULL, false, 2, 'ActualRates', false, '2026-01-05 09:00'),
+        (501, 'Camera offline', 10, 1, 'Service Desk', 101, 'Closed', 21, 'Priority 3 - Medium', NULL, NULL, NULL, NULL,
+         'ghost', 'Nobody Known', '2026-01-06 10:00', '2026-01-07 10:00', true, NULL, 'FixedFee', false, '2026-01-07 10:00'),
+        (502, 'Closed before opened', 10, 1, 'Service Desk', 101, 'Closed', 21, 'Priority 3 - Medium', NULL, NULL, NULL, NULL,
+         NULL, NULL, '2026-01-08 10:00', '2026-01-01 10:00', true, NULL, 'OverrideRate', false, '2026-01-08 10:00'),
+        (503, 'Orphan company', 999, 1, 'Service Desk', 100, 'New', 20, 'Priority 2 - High', NULL, NULL, NULL, NULL,
+         NULL, NULL, '2026-01-09 10:00', NULL, false, NULL, 'ActualRates', false, '2026-01-09 10:00');
+      UPDATE production.companies SET default_contact_id = 200, billing_contact_id = 200, site_id = 7, billing_site_id = 8 WHERE id = 10;
+      INSERT INTO production.time_entries VALUES
+        (900, 10, 500, 'ServiceTicket', 1, '2026-01-05 09:00', '2026-01-05 10:30', 1.5, 1.5, 'Billable', 150, 'Fixed latch', '2026-01-05'),
+        (901, 10, 77, 'ProjectTicket', 1, NULL, NULL, 2, 2, 'DoNotBill', 0, NULL, '2026-01-06'),
+        (902, 10, NULL, 'ChargeCode', 2, '2026-01-06 08:00', '2026-01-06 07:00', 1, 1, 'NoCharge', 0, 'bad times', '2026-01-06'),
+        (903, 10, 503, 'ServiceTicket', 1, NULL, NULL, 1, 1, 'Billable', 100, 'ticket was skipped', '2026-01-09'),
+        (904, 999, NULL, NULL, 1, NULL, NULL, 1, 1, 'Billable', 100, 'orphan company', '2026-01-09');
+    `);
+    source = createSourcePool(sourceUrl, targetUrl);
+
+    target = new pg.Pool({ connectionString: targetUrl, max: 3 });
+    await migrateUp(target);
+    await ensureMarker(target, "shadow");
+  });
+
+  afterAll(async () => {
+    await source?.end();
+    await srcAdmin?.end();
+    await target?.end();
+    for (const n of [srcName, tgtName]) await admin?.query(`DROP DATABASE IF EXISTS ${n}`);
+    await admin?.end();
+  });
+
+  const count = async (sql: string) => Number((await target.query<{ n: string }>(sql)).rows[0]?.n);
+
+  it("a dry run reports what would happen and writes nothing", async () => {
+    const result = await run({ dryRun: true });
+    expect(result.dryRun).toBe(true);
+    expect(result.report.counts.tickets?.written).toBe(3);
+    expect(await count("SELECT count(*) AS n FROM service.ticket")).toBe(0);
+    expect(await count("SELECT count(*) AS n FROM iam.member")).toBe(0);
+    expect(await count("SELECT count(*) AS n FROM service.board")).toBe(0);
+  });
+
+  it("imports with preserved ids, exceptions reported, and reconciliation", async () => {
+    const { report, reconciliation } = await run();
+
+    expect(report.counts.members).toMatchObject({ read: 3, written: 2, skipped: 1 });
+    expect(report.counts.companies).toMatchObject({ read: 5, written: 4, skipped: 1 });
+    expect(report.counts.tickets).toMatchObject({ read: 4, written: 3, skipped: 1 });
+    expect(report.counts["time entries"]).toMatchObject({ read: 5, written: 3, skipped: 2 });
+
+    // Ticket numbers are the CW ids.
+    const ids = (
+      await target.query<{ id: string }>("SELECT id FROM service.ticket ORDER BY id")
+    ).rows.map((r) => Number(r.id));
+    expect(ids).toEqual([500, 501, 502]);
+
+    const t500 = (
+      await target.query(
+        "SELECT t.*, p.name AS prio, p.sort_order FROM service.ticket t JOIN service.priority p ON p.id = t.priority_id WHERE t.id = 500",
+      )
+    ).rows[0];
+    expect(t500.prio).toBe("Priority 2 - High");
+    expect(t500.sort_order).toBe(2);
+    expect(t500.owner_member_id).not.toBeNull();
+    expect(t500.billing_method).toBe("actual_rates");
+    // Naive warehouse timestamps are read as Indianapolis local time (EST = UTC-5 in January).
+    expect(new Date(t500.entered_at).toISOString()).toBe("2026-01-05T14:00:00.000Z");
+
+    // Billing methods map; ticket closed before entered keeps its other data but drops the close date.
+    expect(
+      (await target.query("SELECT billing_method, closed_at FROM service.ticket WHERE id = 501"))
+        .rows[0].billing_method,
+    ).toBe("fixed_fee");
+    expect(
+      (await target.query("SELECT closed_at FROM service.ticket WHERE id = 502")).rows[0].closed_at,
+    ).toBeNull();
+
+    // Closed/default status inference.
+    const st = (
+      await target.query(
+        "SELECT name, is_closed, is_default FROM service.board_status ORDER BY name",
+      )
+    ).rows;
+    expect(st).toEqual([
+      { name: "Closed", is_closed: true, is_default: false },
+      { name: "New", is_closed: false, is_default: true },
+    ]);
+
+    // Company handling: deleted flag, missing status, duplicate identifier, missing name.
+    const deleted = await target.query(
+      "SELECT deleted_at FROM crm.company WHERE legacy_cw_company_id = 11",
+    );
+    expect(deleted.rows[0].deleted_at).not.toBeNull();
+    const nostat = await target.query(
+      "SELECT s.name FROM crm.company c JOIN crm.company_status s ON s.id = c.status_id WHERE c.legacy_cw_company_id = 12",
+    );
+    expect(nostat.rows[0].name).toBe("Unknown");
+    const dup = await target.query(
+      "SELECT identifier FROM crm.company WHERE legacy_cw_company_id = 13",
+    );
+    expect(dup.rows[0].identifier).toBe("CW-13");
+
+    // Time entries: charge types, bad times dropped, skipped ticket becomes a DB rejection exception.
+    const te = (
+      await target.query(
+        "SELECT id, charge_type, ticket_id, project_ticket_id, started_at, billable, status FROM timekeeping.time_entry ORDER BY id",
+      )
+    ).rows;
+    expect(te.map((r) => [Number(r.id), r.charge_type, r.billable])).toEqual([
+      [900, "service_ticket", "billable"],
+      [901, "project_ticket", "do_not_bill"],
+      [902, "non_ticket", "no_charge"],
+    ]);
+    expect(te[2].started_at).toBeNull();
+    expect(te.every((r) => r.status === "approved")).toBe(true);
+    const problems = report.exceptions.map((e) => `${e.entity}:${e.sourceId}:${e.problem}`);
+    expect(problems.some((p) => p.startsWith("time entries:903:rejected by database"))).toBe(true);
+
+    // Catalog: work roles and types keep rates, minimum/maximum hours and billing flags.
+    const wt = (
+      await target.query(
+        "SELECT name::text, rate_type, rate_multiplier::float, custom_rate::float, bill_time, hours_min::float, hours_max::float, round_billing_hours_to::float, is_active FROM catalog.work_type ORDER BY legacy_cw_work_type_id",
+      )
+    ).rows.filter((r) =>
+      ["Onsite - Service", "Internal", "After Hours", "Dispatch"].includes(r.name),
+    );
+    expect(wt).toEqual([
+      {
+        name: "Onsite - Service",
+        rate_type: "custom",
+        rate_multiplier: 1,
+        custom_rate: 147,
+        bill_time: "billable",
+        hours_min: 1,
+        hours_max: 0,
+        round_billing_hours_to: null,
+        is_active: true,
+      },
+      {
+        name: "Internal",
+        rate_type: "multiplier",
+        rate_multiplier: 1,
+        custom_rate: null,
+        bill_time: "do_not_bill",
+        hours_min: 0,
+        hours_max: 0,
+        round_billing_hours_to: null,
+        is_active: true,
+      },
+      {
+        name: "After Hours",
+        rate_type: "multiplier",
+        rate_multiplier: 1.5,
+        custom_rate: null,
+        bill_time: "billable",
+        hours_min: 0,
+        hours_max: 0,
+        round_billing_hours_to: 0.25,
+        is_active: true,
+      },
+      {
+        name: "Dispatch",
+        rate_type: "custom",
+        rate_multiplier: 1,
+        custom_rate: 90,
+        bill_time: "billable",
+        hours_min: 0,
+        hours_max: 1,
+        round_billing_hours_to: null,
+        is_active: false,
+      },
+    ]);
+    expect(report.counts["work roles"]).toMatchObject({ read: 2, written: 2 });
+
+    // Sites: address parsing, duplicate names disambiguated, orphan skipped, company defaults set.
+    const sites = (
+      await target.query(
+        "SELECT name, address_line1, city, state, postal_code, is_default_service, is_billing FROM crm.site ORDER BY legacy_cw_site_id",
+      )
+    ).rows;
+    expect(sites).toHaveLength(3);
+    expect(sites[0]).toMatchObject({
+      name: "Main Office",
+      address_line1: "8243 Hall Road Suite 102",
+      city: "Utica",
+      state: "MI",
+      postal_code: "48317",
+      is_default_service: true,
+      is_billing: false,
+    });
+    expect(sites[1]).toMatchObject({
+      name: "Main Office (8)",
+      postal_code: "46060",
+      is_billing: true,
+    });
+    expect(sites[2]).toMatchObject({ address_line1: "somewhere with no commas", city: null });
+    expect(report.counts.sites).toMatchObject({ read: 4, written: 3, skipped: 1 });
+
+    // Contacts: companyless skipped, channels normalised, one default per kind, opt-out from unsubscribe.
+    expect(report.counts.contacts).toMatchObject({ read: 4, written: 3, skipped: 1 });
+    const pat = (
+      await target.query(
+        "SELECT id, is_marketing_opt_out, site_id FROM crm.contact WHERE legacy_cw_contact_id = 200",
+      )
+    ).rows[0];
+    expect(pat.is_marketing_opt_out).toBe(true);
+    expect(pat.site_id).not.toBeNull();
+    const chans = (
+      await target.query(
+        "SELECT kind, value_normalized, is_default FROM crm.contact_channel WHERE contact_id = $1 ORDER BY kind, value_normalized",
+        [pat.id],
+      )
+    ).rows;
+    expect(chans).toEqual([
+      { kind: "direct", value_normalized: "+13175550100", is_default: false },
+      { kind: "email", value_normalized: "pat.alt@acme.test", is_default: true },
+      { kind: "email", value_normalized: "pat@acme.test", is_default: false },
+      { kind: "mobile", value_normalized: "+13175550100", is_default: true },
+    ]);
+    const sam = (
+      await target.query(
+        "SELECT value_normalized, extension FROM crm.contact_channel c JOIN crm.contact k ON k.id = c.contact_id WHERE k.legacy_cw_contact_id = 201",
+      )
+    ).rows;
+    expect(sam).toEqual([{ value_normalized: "+13175550111", extension: "9" }]);
+    const company = (
+      await target.query(
+        "SELECT default_contact_id, billing_contact_id FROM crm.company WHERE legacy_cw_company_id = 10",
+      )
+    ).rows[0];
+    expect(company.default_contact_id).toBe(pat.id);
+
+    // Ticket 500 links to its contact by name; the unknown name is tallied rather than guessed.
+    expect(
+      (await target.query("SELECT contact_id FROM service.ticket WHERE id = 500")).rows[0]
+        .contact_id,
+    ).toBe(pat.id);
+    expect(
+      (await target.query("SELECT contact_id FROM service.ticket WHERE id = 501")).rows[0]
+        .contact_id,
+    ).toBeNull();
+
+    // Notes: kind precedence, empty and skipped-ticket notes dropped, unmatched author left blank.
+    const notes = (
+      await target.query(
+        "SELECT kind, body, author_member_id FROM service.ticket_note ORDER BY legacy_cw_note_id",
+      )
+    ).rows;
+    expect(notes.map((n) => [n.kind, n.body])).toEqual([
+      ["description", "Door will not latch"],
+      ["resolution", "Replaced strike plate"],
+      ["discussion", "Customer called back"],
+      ["internal", "tech only"],
+    ]);
+    expect(notes[0].author_member_id).not.toBeNull();
+    expect(notes[2].author_member_id).toBeNull();
+    expect(report.counts["ticket notes"]).toMatchObject({ read: 6, written: 4, skipped: 2 });
+
+    // Reconciliation compares the whole source to what landed (skipped rows show as differences).
+    expect(reconciliation.tickets).toEqual({ source: 4, target: 3 });
+    expect(reconciliation.timeEntries).toEqual({ source: 5, target: 3 });
+
+    // New native records continue the CW numbering, past skipped records too.
+    const next = await target.query<{ id: string }>(
+      `INSERT INTO service.ticket (summary, company_id, board_id, status_id, priority_id)
+       SELECT 'native', c.id, b.id, s.id, p.id FROM crm.company c, service.board b, service.board_status s, service.priority p
+        WHERE c.legacy_cw_company_id = 10 AND s.board_id = b.id AND s.is_default AND p.legacy_cw_priority_id = 20
+        RETURNING id`,
+    );
+    // CW ticket 503 was skipped, but its number is still reserved.
+    expect(Number(next.rows[0]?.id)).toBe(504);
+  });
+
+  it("is idempotent: a second run changes nothing and creates no duplicates", async () => {
+    const before = {
+      tickets: await count(
+        "SELECT count(*) AS n FROM service.ticket WHERE legacy_cw_ticket_id IS NOT NULL",
+      ),
+      time: await count("SELECT count(*) AS n FROM timekeeping.time_entry"),
+      companies: await count("SELECT count(*) AS n FROM crm.company"),
+      members: await count("SELECT count(*) AS n FROM iam.member"),
+      statuses: await count("SELECT count(*) AS n FROM crm.company_status"),
+    };
+    await run();
+    expect({
+      tickets: await count(
+        "SELECT count(*) AS n FROM service.ticket WHERE legacy_cw_ticket_id IS NOT NULL",
+      ),
+      time: await count("SELECT count(*) AS n FROM timekeeping.time_entry"),
+      companies: await count("SELECT count(*) AS n FROM crm.company"),
+      members: await count("SELECT count(*) AS n FROM iam.member"),
+      statuses: await count("SELECT count(*) AS n FROM crm.company_status"),
+    }).toEqual(before);
+  });
+
+  it("picks up source changes on re-run (nightly refresh)", async () => {
+    await srcAdmin.query(
+      "UPDATE production.service_tickets SET summary = 'Door latch repaired' WHERE id = 500",
+    );
+    await run();
+    const r = await target.query("SELECT summary FROM service.ticket WHERE id = 500");
+    expect(r.rows[0].summary).toBe("Door latch repaired");
+  });
+
+  it("never writes to production, and refuses a mismatched environment", async () => {
+    await expect(run({ appEnv: "production" })).rejects.toThrow(/never writes to "production"/);
+    await expect(run({ appEnv: "development" })).rejects.toThrow(/marked "shadow"/);
+  });
+
+  it("opens the source read-only", async () => {
+    await expect(source.query("CREATE TABLE production.nope (a int)")).rejects.toMatchObject({
+      code: "25006",
+    });
+    await expect(source.query("DELETE FROM production.members")).rejects.toMatchObject({
+      code: "25006",
+    });
+  });
+});
