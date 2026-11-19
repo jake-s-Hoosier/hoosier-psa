@@ -1,6 +1,6 @@
 # 0005. Staff authentication with Microsoft Entra ID
 
-Status: Accepted
+Status: Superseded by [0010](0010-local-authentication.md) (Hoosier Security does not use Entra)
 Date: 2026-11-19
 
 ## Context

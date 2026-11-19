@@ -76,10 +76,57 @@ happens in dev or in clearly marked test records that the nightly re-import remo
 3. **T-1 day.** Last parallel billing run reconciled and signed off by the GM/Integrator.
 4. **Cutover window** (after the final nightly ETL): CW set to read-only, final import into `hoosier_psa`,
    reconciliation suite run, spot-check by dispatch, billing and a technician.
-5. **Go-live.** Staff sign in with Entra; the QuickBooks export is enabled; autopay stays off until its own sign-off.
+5. **Go-live.** Staff sign in with password and authenticator (accounts created beforehand with `pnpm auth set-password`); the QuickBooks export is enabled; autopay stays off until its own sign-off.
 6. **Hypercare** (first two billing cycles): daily reconciliation, same-day fixes, CW kept read-only for reference.
 7. **Retirement.** After agreed sign-off, the CW subscription ends and the last export is archived.
 
 **Rollback:** until the first posted invoice or payroll export from the new system, rollback means
 re-enabling CW and discarding the new database. After that point rollback is a forward-fix; this is why
 the first billing cycle runs under hypercare with CW still readable.
+
+## Import tool (`packages/importer`)
+
+Re-runnable, id-preserving loader from the CW mirror (`cw_datawarehouse`, schema `production`) into a
+non-production environment. Implemented so far: members, companies (with statuses and territories),
+boards, statuses, priorities, ticket types and sources (derived from tickets), tickets, time entries.
+
+```bash
+APP_ENV=shadow DATABASE_URL=postgres://.../hoosier_psa_shadow CW_MIRROR_URL=postgres://cw_readonly@.../cw_datawarehouse \
+  pnpm --filter @hoosier/importer import --dry-run     # report only; everything rolls back
+```
+
+Safety: the mirror is opened with `default_transaction_read_only=on` and may never equal the target;
+the target must carry a matching environment marker; `production` is refused outright (it is loaded only
+by the cutover procedure); the whole run is one transaction, so a failure leaves nothing half-imported.
+Rows that cannot be imported become reported **exceptions**, never silent drops.
+
+Behaviour worth knowing:
+- **Idempotent.** Upserts on the `legacy_cw_*` keys (tickets and time entries also keep their CW id).
+  Running it nightly refreshes shadow; changed source rows overwrite.
+- **Sequences** advance past the highest *source* id, so numbers of skipped CW records are never reused.
+- Naive mirror timestamps are read as `America/Indiana/Indianapolis` local time.
+- Placeholder member emails (`@import.invalid`) until an administrator sets the real email.
+
+### Gaps in the mirror that block full parity (action needed in the ETL)
+The mirror stores names rather than ids for some fields and omits others. For these the importer uses
+placeholders and says so in its exception report:
+
+| Needed | Mirror today | Effect |
+|---|---|---|
+| Work role and work type per time entry | not captured | placeholders "Imported (unknown …)"; payroll-neutral, billing-relevant |
+| Time entry status, invoice link, approval | not captured | all imported time is `approved`; billed history needs the invoice link |
+| Ticket contact id, site id, resources | contact name only; no site; resources as text | contact linked by unique (company, name) match, ambiguous or unknown names are tallied; site and resources not imported |
+| Company billing profile (tax, terms, bill-to, QuickBooks link) | partly present | not imported yet |
+| Board status default | CW has no default flag | rule: open status named "New…", else first open; reviewed in UAT |
+| Ticket statuses missing from `board_statuses` | a few (20 in the live mirror) | derived from tickets and reported |
+| Member email, cost history | cost only | placeholder email; cost snapshot uses current cost |
+
+Imported today: members, companies, sites (street/city/state/zip parsed; other formats stay in line 1;
+duplicate names per company get the CW id appended), contacts with email and phone channels (E.164,
+extensions split out, one default per kind), company default/billing contacts and sites, work roles and
+work types (rate type, minimum/maximum hours, billing flag), boards, priorities, board statuses (closed
+and inactive flags from CW), tickets, ticket notes (kind precedence: description, resolution, internal,
+discussion; empty notes skipped) and time entries. Noisy, row-level problems are counted in the report
+summary rather than listed one per row.
+
+Not yet implemented: agreements, invoices, projects, products and the rest of the catalog.

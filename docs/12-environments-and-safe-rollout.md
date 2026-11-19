@@ -52,7 +52,7 @@ All items must be checked before `approve-go-live production --go-live-checklist
 - [ ] Backups and a restore test completed for the production database
 - [ ] Rollback plan reviewed; ConnectWise remains available for the agreed fallback window
 - [ ] QuickBooks and payment integrations verified in sandbox; credentials stored securely
-- [ ] Microsoft Entra sign-in enabled and `AUTH_MODE=dev` removed
+- [ ] `AUTH_MODE=session` with a strong `AUTH_SECRET`; every staff login created, enrolled in MFA, recovery codes stored
 - [ ] Staff trained; cutover date and freeze window communicated
 - [ ] Final sign-off by the General Manager
 

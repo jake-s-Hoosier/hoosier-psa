@@ -33,9 +33,17 @@ When an entry is written the system stores `bill_rate` and `cost_rate`:
 
 ```
 bill_rate = override (ticket, then agreement)
-            else work_role.hourly_rate x work_type.rate_multiplier
+            else by work_type.rate_type:
+                   multiplier  -> work_role.hourly_rate x rate_multiplier
+                   custom      -> custom_rate (the role rate is ignored)
+                   adjustment  -> work_role.hourly_rate + rate_adjustment
 cost_rate = member.hourly_cost
 ```
+
+Work types also carry `bill_time` (`billable`, `do_not_bill`, `no_charge`; the default for a new entry's
+billable setting), `hours_min` and `hours_max` per entry (0 means no cap) and an optional
+`round_billing_hours_to`. Billed hours apply the minimum, then rounding, then the maximum. Example from
+CW history: "Onsite - Service" is a custom rate with a one-hour minimum; "Dispatch" is capped at one hour.
 
 Later changes to rate cards or member costs never alter existing entries. Re-pricing is an explicit,
 audited action on open entries only.
@@ -44,7 +52,7 @@ audited action on open entries only.
 
 `billedHours(actual, rule)` applies, in order: the minimum block (e.g. 30 minutes), then rounding to
 an increment (e.g. 15 minutes) by `up`, `nearest` or `down`. Zero stays zero. The rule resolves from the
-most specific source: agreement, then company, then work type, then the global default. *(Resolution
+most specific source: agreement, then company, then work type, then the global default. The 15-minute round-up default matches CW history (99.8% of billed hours are quarter-hour multiples) but remains a placeholder until the docs/05 decisions. *(Resolution
 order is specified here and implemented with agreements in milestone 2; today the function is applied
 with an explicit rule.)*
 
@@ -114,3 +122,19 @@ into Justworks stays manual; the export replaces the spreadsheet and the hand co
 - Entering time on a company whose status disallows new work (`allows_new_work = false`) is blocked unless
   overridden by a manager.
 - Daylight saving changes: durations come from `timestamptz` differences, never from clock-time subtraction.
+
+## Implemented API (milestone 1)
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v1/timesheets/submit` / `recall` | Member submits or recalls their own open/submitted time for a date range. Submit is refused while a timer is running. |
+| `POST /api/v1/timesheets/approve` | Marks a member's submitted time approved. (Permission checks arrive with sign-in.) |
+| `GET /api/v1/timesheets/summary` | Per-member entry and hour counts by status for a range. |
+| `POST /api/v1/pay-periods/generate` | Creates the 1-15 and 16-end periods for a month; safe to repeat. |
+| `GET /api/v1/pay-periods/:id/payroll` | Review table for any period, with warnings and the count of unsubmitted entries. |
+| `POST /api/v1/pay-periods/:id/lock` | Refused while any time in the period is still open; otherwise stamps entries and freezes them. |
+| `POST /api/v1/pay-periods/:id/export?format=csv` | Requires a locked period; first call marks it exported. |
+
+Payroll counts **actual hours** of submitted, approved and billed time, whether or not it is billable.
+*Assumption to confirm against the current spreadsheet:* CW-derived payroll uses actual (not billed) hours.
+Pay dates are not set automatically; confirm the period-to-pay-date mapping with the Justworks calendar.
