@@ -46,15 +46,21 @@ Requirements: Node 22+, pnpm 10+, PostgreSQL 16+.
 ```bash
 pnpm install
 cp .env.example .env            # then edit DATABASE_URL
-createdb hoosier_psa
-pnpm db:migrate                 # applies packages/db/migrations in order
-pnpm dev:api                    # http://127.0.0.1:4000
+createdb hoosier_psa_dev        # never cw_datawarehouse: the tools refuse it
+APP_ENV=development pnpm db:migrate   # applies migrations and stamps the environment marker
+DB_WRITE_MODE=read_write pnpm dev:api # http://127.0.0.1:4000 (omit DB_WRITE_MODE for read-only)
 pnpm dev:web                    # http://127.0.0.1:5173
 ```
 
 Until Microsoft Entra sign-in lands (milestone 1) the API runs with `AUTH_MODE=dev`, which trusts an
 `x-dev-member-id` header. It refuses to start that way in production. Insert a row into
 `iam.member` and use its id for local work.
+
+## Safety: nothing writes to production until we say so
+
+The application is read-only by default, refuses to touch `cw_datawarehouse`, and the production
+database stays locked until a documented go-live gate is passed. See
+[docs/12-environments-and-safe-rollout.md](docs/12-environments-and-safe-rollout.md).
 
 ## Quality gates
 

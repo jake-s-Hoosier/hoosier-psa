@@ -38,3 +38,12 @@ export function listCompanies(q: string, signal?: AbortSignal): Promise<ListResp
   if (q.trim()) params.set("q", q.trim());
   return get(`/api/v1/companies?${params}`, signal);
 }
+
+export interface SystemStatus {
+  environment: "development" | "test" | "uat" | "shadow" | "production";
+  writeMode: "read_only" | "read_write";
+}
+
+export function getSystemStatus(signal?: AbortSignal): Promise<SystemStatus> {
+  return get("/api/v1/system/status", signal);
+}

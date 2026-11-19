@@ -6,6 +6,9 @@ the first production release.
 ## [Unreleased]
 
 ### Added
+- Write safety: environment marker table (migration 0007) with one-way go-live approval, refusal to
+  target `cw_datawarehouse`, read-only database connections by default (`DB_WRITE_MODE`), API read-only
+  guard, `/api/v1/system/status` and an environment banner in the web UI. See docs/12 and ADR 0009.
 - Milestone 0 foundation: pnpm TypeScript monorepo, Biome, Vitest, GitHub Actions CI.
 - PostgreSQL migrations 0001-0006: foundation (audit, triggers), `iam`, `catalog`, `crm`, `service`,
   `timekeeping`; checksummed migration runner with advisory locking.

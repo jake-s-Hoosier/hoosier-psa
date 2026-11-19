@@ -45,3 +45,11 @@
 
 Never commit credentials, tokens, customer data, card data or exports from QuickBooks or
 ConnectWise. `.env` files are ignored; `.env.example` documents every variable.
+
+## Database safety rules
+
+- Never point `DATABASE_URL` at `cw_datawarehouse` or a database you did not create for this project.
+- Tests must use `TEST_DATABASE_URL` and create throwaway databases, never an existing one.
+- Anything that writes outside our own database (QuickBooks, payment providers, email) must check
+  `INTEGRATIONS_ENABLED` and must have a fake for tests.
+- A new write path needs a test proving it is rejected in read-only mode.

@@ -1,11 +1,41 @@
-import { createPool } from "@hoosier/db";
+import { assertSafeTarget, checkWriteAccess, createPool, readMarker } from "@hoosier/db";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const pool = createPool(config.DATABASE_URL);
+  assertSafeTarget(config.DATABASE_URL);
+
+  // Startup safety checks run on a read-only connection and must pass before the server listens.
+  const pool = createPool(config.DATABASE_URL, {
+    readOnly: config.DB_WRITE_MODE === "read_only",
+  });
+
+  const marker = await readMarker(pool);
+  if (!marker) {
+    throw new Error("Database has no environment marker. Run: APP_ENV=<env> pnpm db:migrate");
+  }
+  if (marker.name !== config.APP_ENV) {
+    throw new Error(
+      `Database is marked "${marker.name}" but APP_ENV is "${config.APP_ENV}". Refusing to start.`,
+    );
+  }
+  if (config.DB_WRITE_MODE === "read_write") {
+    const decision = checkWriteAccess({ appEnv: config.APP_ENV, marker, actor: "api" });
+    if (!decision.allowed) {
+      throw new Error(`Refusing to start in read_write mode: ${decision.reason}`);
+    }
+  }
+
   const app = buildApp({ pool, config });
+  app.log.info(
+    {
+      environment: config.APP_ENV,
+      writeMode: config.DB_WRITE_MODE,
+      integrations: config.INTEGRATIONS_ENABLED,
+    },
+    "startup safety checks passed",
+  );
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, "shutting down");
