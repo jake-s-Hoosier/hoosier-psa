@@ -158,7 +158,9 @@ async function importMembers(src: pg.Pool, db: pg.PoolClient, report: ImportRepo
     const fullName = `${clean(r.first_name) ?? ""} ${clean(r.last_name) ?? ""}`
       .trim()
       .toLowerCase();
-    if (fullName) {
+    // API/integration members keep the person's whole name in first_name and have no last name;
+    // they must not shadow the real person, so only members with a last name are name-matched.
+    if (fullName && clean(r.last_name)) {
       if (byName.has(fullName)) ambiguousNames.add(fullName);
       byName.set(fullName, id);
     }
