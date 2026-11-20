@@ -190,3 +190,27 @@ precomputable.
 4. Sales tax: single code per company, or line-level? (Mirror shows `tax_code` at invoice level.)
 5. Statements: required, or invoices only?
 6. Are CW addition prices per month or per bill cycle? (Decides how the importer maps them.)
+
+## Projects and project billing (as built)
+
+A project belongs to one customer and has a billing method: **fixed fee**, **actual rates**, **not to exceed** (a cap
+on labor) or **override rate** (one hourly rate). Its work is done on ordinary service tickets that point at the
+project (and optionally a phase); time and materials are logged on those tickets as usual. Ticket runs skip project
+tickets entirely, so project work is billed only through a project run.
+
+A project run bills one **scope**: the project (every ticket not in a separately billed phase), or one phase marked
+*bill separately*. A separately billed phase with no terms of its own bills time and materials; with terms it can be a
+fixed fee, cap or override rate of its own. Modes:
+
+| Mode | For | What it does |
+| --- | --- | --- |
+| Time and materials | actual rates, override, not to exceed | Approved, unbilled time through a date (cap applied across runs) plus unbilled materials and expenses |
+| Down payment, Progress | fixed fee | One fee line, in dollars or as a percent of the fee, with optional wording (a milestone name). Takes no time |
+| Final | fixed fee | The rest of the fee, plus all unbilled materials; takes all of the scope's approved time so none is left behind |
+
+Rules: fee lines on non-void invoices (drafts included) never add up to more than the fixed fee (checked in the
+planner and again by a database trigger). The final invoice needs the project set to *Ready to invoice* (or closed), or,
+for a phase, every ticket in it closed, and every time entry approved. If the fee was billed in full earlier, the final
+carries the time on a $0 fee line. A scope can have one final invoice; voiding it frees the fee and the time, and
+discarding a draft run does the same. The customer PO is copied to the invoice. Labor and fees are untaxed by default; the
+reviewer can mark a line taxable on the draft. Labor lines are grouped by rate for the whole scope, not per ticket.

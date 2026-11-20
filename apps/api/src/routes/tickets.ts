@@ -35,6 +35,10 @@ interface TicketRow {
   agreement: string | null;
   billing_method: Ticket["billingMethod"];
   billing_amount: string | null;
+  project_id: string | null;
+  project: string | null;
+  phase_id: string | null;
+  phase: string | null;
   entered_at: Date;
   closed_at: Date | null;
   updated_at: Date;
@@ -46,6 +50,7 @@ const SELECT_TICKET = `
          t.board_id, b.name AS board, t.status_id, s.name AS status, s.is_closed,
          t.priority_id, p.name AS priority, t.owner_member_id,
          t.agreement_id, ag.name AS agreement, t.billing_method, t.billing_amount,
+         t.project_id, pj.name AS project, t.phase_id, ph.name::text AS phase,
          t.entered_at, t.closed_at, t.updated_at
     FROM service.ticket t
     JOIN crm.company c ON c.id = t.company_id
@@ -54,7 +59,9 @@ const SELECT_TICKET = `
     JOIN service.board b ON b.id = t.board_id
     JOIN service.board_status s ON s.id = t.status_id
     JOIN service.priority p ON p.id = t.priority_id
-    LEFT JOIN billing.agreement ag ON ag.id = t.agreement_id`;
+    LEFT JOIN billing.agreement ag ON ag.id = t.agreement_id
+    LEFT JOIN project.project pj ON pj.id = t.project_id
+    LEFT JOIN project.phase ph ON ph.id = t.phase_id`;
 
 const optId = (v: string | null) => (v === null ? null : Number(v));
 
@@ -80,6 +87,10 @@ function toTicket(r: TicketRow): Ticket {
     agreement: r.agreement,
     billingMethod: r.billing_method,
     billingAmount: r.billing_amount,
+    projectId: optId(r.project_id),
+    project: r.project,
+    phaseId: optId(r.phase_id),
+    phase: r.phase,
     enteredAt: r.entered_at.toISOString(),
     closedAt: r.closed_at?.toISOString() ?? null,
     updatedAt: r.updated_at.toISOString(),
@@ -91,6 +102,36 @@ async function loadTicket(db: pg.Pool | pg.PoolClient, id: number): Promise<Tick
   const row = rows[0];
   if (!row) throw new HttpError(404, "Not Found", `Ticket ${id} not found`);
   return row;
+}
+
+/**
+ * A project ticket must be for the project's customer and, if it names a phase, one of that project's phases.
+ * (The database enforces the same; this gives a readable message first.)
+ */
+async function checkProject(
+  db: pg.Pool | pg.PoolClient,
+  companyId: number,
+  projectId: number,
+  phaseId: number | null,
+): Promise<void> {
+  const { rows } = await db.query<{ company_id: string; status: string }>(
+    "SELECT company_id, status FROM project.project WHERE id = $1",
+    [projectId],
+  );
+  const pj = rows[0];
+  if (!pj) throw new HttpError(422, "Invalid project", "That project does not exist");
+  if (Number(pj.company_id) !== companyId)
+    throw new HttpError(422, "Invalid project", "The project is not for this ticket's company");
+  if (pj.status === "closed" || pj.status === "canceled")
+    throw new HttpError(409, "Project closed", "That project is closed; reopen it first");
+  if (phaseId !== null) {
+    const ph = await db.query("SELECT 1 FROM project.phase WHERE id = $1 AND project_id = $2", [
+      phaseId,
+      projectId,
+    ]);
+    if (!ph.rowCount)
+      throw new HttpError(422, "Invalid phase", "That phase is not part of the project");
+  }
 }
 
 /** A status must belong to the ticket's board; otherwise the move is meaningless. */
@@ -185,11 +226,15 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
         priorityId = Number(p.rows[0]?.id);
       }
 
+      if (body.phaseId !== undefined && body.projectId === undefined)
+        throw new HttpError(422, "Invalid phase", "Choose the project as well as the phase");
+      if (body.projectId !== undefined)
+        await checkProject(client, body.companyId, body.projectId, body.phaseId ?? null);
       const { rows } = await client.query<{ id: string }>(
         `INSERT INTO service.ticket
            (summary, company_id, site_id, contact_id, board_id, status_id, priority_id,
-            owner_member_id, entered_by_member_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+            owner_member_id, entered_by_member_id, project_id, phase_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
         [
           body.summary,
           body.companyId,
@@ -200,6 +245,8 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
           priorityId,
           body.ownerMemberId ?? null,
           req.memberId,
+          body.projectId ?? null,
+          body.phaseId ?? null,
         ],
       );
       const id = Number(rows[0]?.id);
@@ -285,6 +332,24 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
       } else if (body.companyId !== undefined && body.companyId !== Number(current.company_id)) {
         // Moving to another company drops an agreement that belonged to the old one.
         sets.push("agreement_id = NULL");
+      }
+      if (body.projectId !== undefined || body.phaseId !== undefined) {
+        const curPj = await client.query<{ project_id: string | null }>(
+          "SELECT project_id FROM service.ticket WHERE id = $1",
+          [id],
+        );
+        const projectId =
+          body.projectId !== undefined ? body.projectId : optId(curPj.rows[0]?.project_id ?? null);
+        const phaseId = body.phaseId !== undefined ? body.phaseId : null;
+        if (projectId === null && phaseId !== null)
+          throw new HttpError(422, "Invalid phase", "Choose the project as well as the phase");
+        if (projectId !== null) await checkProject(client, targetCompany, projectId, phaseId);
+        // Time already on an invoice stays where it is; moving only changes how the rest bills.
+        set("project_id", projectId);
+        set("phase_id", phaseId);
+      } else if (body.companyId !== undefined && body.companyId !== Number(current.company_id)) {
+        // A project belongs to one customer, so moving the ticket leaves the project.
+        sets.push("project_id = NULL", "phase_id = NULL");
       }
       if (body.billingMethod !== undefined || body.billingAmount !== undefined) {
         // A fixed fee, cap or override rate needs an amount; actual rates ignore it.

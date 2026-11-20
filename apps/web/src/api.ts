@@ -23,7 +23,15 @@ import type {
   Payment,
   PaymentCreate,
   PayrollRow,
+  Phase,
+  PhaseCreate,
+  PhaseUpdate,
   ProductChoice,
+  Project,
+  ProjectBilling,
+  ProjectBillingMode,
+  ProjectCreate,
+  ProjectUpdate,
   Site,
   SiteInput,
   Ticket,
@@ -159,6 +167,8 @@ export const createTicket = (body: {
   contactId?: number;
   boardId: number;
   description?: string;
+  projectId?: number;
+  phaseId?: number;
 }) => request<Ticket>("POST", "/api/v1/tickets", body);
 
 export const updateTicket = (
@@ -581,7 +591,17 @@ export const getBillingRun = (id: number, signal?: AbortSignal) =>
 /** An agreement run bills a month; a ticket run bills approved time through a date. */
 export type RunTarget =
   | { kind: "agreement"; month: string }
-  | { kind: "ticket"; throughDate: string };
+  | { kind: "ticket"; throughDate: string }
+  | {
+      kind: "project";
+      projectId: number;
+      phaseId?: number;
+      mode: ProjectBillingMode;
+      throughDate?: string;
+      amount?: number;
+      percent?: number;
+      description?: string;
+    };
 export const previewBillingRun = (target: RunTarget, invoiceDate: string) =>
   request<BillingRunPreview>("POST", "/api/v1/billing/runs", {
     ...target,
@@ -662,3 +682,41 @@ export const unapplyCreditMemo = (id: number, applicationId: number) =>
   request<CreditMemo>("DELETE", `/api/v1/credit-memos/${id}/applications/${applicationId}`);
 export const voidCreditMemo = (id: number, reason: string) =>
   request<CreditMemo>("POST", `/api/v1/credit-memos/${id}/void`, { reason });
+
+// ---- Projects ----
+export const listProjects = (
+  p: { q?: string; state?: "active" | "closed" | "all"; companyId?: number },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "200", state: p.state ?? "active" });
+  if (p.q) params.set("q", p.q);
+  if (p.companyId) params.set("companyId", String(p.companyId));
+  return get<ListResponse<Project>>(`/api/v1/projects?${params}`, signal);
+};
+export const getProject = (id: number, signal?: AbortSignal) =>
+  get<Project>(`/api/v1/projects/${id}`, signal);
+export const createProject = (body: ProjectCreate) =>
+  request<Project>("POST", "/api/v1/projects", body);
+export const updateProject = (id: number, body: ProjectUpdate) =>
+  request<Project>("PATCH", `/api/v1/projects/${id}`, body);
+export const createPhase = (projectId: number, body: PhaseCreate) =>
+  request<Phase>("POST", `/api/v1/projects/${projectId}/phases`, body);
+export const updatePhase = (projectId: number, phaseId: number, body: PhaseUpdate) =>
+  request<Phase>("PATCH", `/api/v1/projects/${projectId}/phases/${phaseId}`, body);
+export const deletePhase = (projectId: number, phaseId: number) =>
+  request<void>("DELETE", `/api/v1/projects/${projectId}/phases/${phaseId}`);
+export const getProjectBilling = (id: number, signal?: AbortSignal) =>
+  get<ProjectBilling>(`/api/v1/projects/${id}/billing`, signal);
+export interface ProjectTicketRow {
+  id: number;
+  summary: string;
+  status: string;
+  isClosed: boolean;
+  phaseId: number | null;
+  phase: string | null;
+  owner: string | null;
+  billingMethod: string;
+  hours: string;
+}
+export const listProjectTickets = (id: number, signal?: AbortSignal) =>
+  get<{ items: ProjectTicketRow[] }>(`/api/v1/projects/${id}/tickets`, signal);

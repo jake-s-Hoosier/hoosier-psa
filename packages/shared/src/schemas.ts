@@ -231,6 +231,11 @@ export const ticketSchema = z.object({
   /** How time on the ticket is billed; the amount is the fee, cap or override rate the method needs. */
   billingMethod: z.enum(["actual_rates", "fixed_fee", "not_to_exceed", "override_rate"]),
   billingAmount: z.string().nullable(),
+  /** The project (and phase) this ticket is work for; project work is billed by the project, not by ticket runs. */
+  projectId: z.number().int().nullable(),
+  project: z.string().nullable(),
+  phaseId: z.number().int().nullable(),
+  phase: z.string().nullable(),
   enteredAt: z.string(),
   closedAt: z.string().nullable(),
   updatedAt: z.string(),
@@ -262,6 +267,9 @@ export const ticketCreateSchema = z.object({
   priorityId: idSchema.optional(),
   ownerMemberId: idSchema.optional(),
   description: z.string().trim().max(20000).optional(),
+  /** Makes this a project ticket. The ticket's customer must be the project's customer. */
+  projectId: idSchema.optional(),
+  phaseId: idSchema.optional(),
 });
 export type TicketCreate = z.infer<typeof ticketCreateSchema>;
 
@@ -280,6 +288,9 @@ export const ticketUpdateSchema = z
     billingMethod: z.enum(["actual_rates", "fixed_fee", "not_to_exceed", "override_rate"]),
     /** The fixed fee, not-to-exceed cap or override hourly rate; null clears it. */
     billingAmount: z.number().min(0).max(100_000_000).nullable(),
+    /** Moves the ticket into or out of a project (null). Clears the phase unless one is given. */
+    projectId: idSchema.nullable(),
+    phaseId: idSchema.nullable(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
@@ -749,9 +760,17 @@ export interface Invoice {
   lines?: InvoiceLine[];
 }
 
+export const projectBillingModes = ["time_materials", "deposit", "progress", "final"] as const;
+export type ProjectBillingMode = (typeof projectBillingModes)[number];
+
 export interface BillingRun {
   id: number;
-  kind: "agreement" | "ticket";
+  kind: "agreement" | "ticket" | "project";
+  /** Project runs bill one scope: the project, or one phase that is billed separately. */
+  projectId: number | null;
+  project: string | null;
+  phaseId: number | null;
+  projectMode: ProjectBillingMode | null;
   /** For a ticket run, the month of throughDate. */
   periodMonth: string;
   /** Ticket runs bill time worked up to and including this date. */
@@ -767,7 +786,7 @@ export interface BillingRun {
 }
 
 export interface SkippedItem {
-  kind: "agreement" | "ticket";
+  kind: "agreement" | "ticket" | "project";
   id: number;
   /** Agreement name, or "#12 Door stuck" for a ticket. */
   label: string;
@@ -776,7 +795,7 @@ export interface SkippedItem {
 }
 
 export interface BillingRunPreview {
-  kind: "agreement" | "ticket";
+  kind: "agreement" | "ticket" | "project";
   periodMonth: string;
   throughDate: string | null;
   invoiceDate: string;
@@ -790,8 +809,17 @@ const billingMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Use YYYY-MM");
 export const billingRunCreateSchema = z
   .object({
     /** Agreement runs bill every agreement whose cycle starts in this month, in advance. */
-    kind: z.enum(["agreement", "ticket"]).default("agreement"),
+    kind: z.enum(["agreement", "ticket", "project"]).default("agreement"),
     month: billingMonth.optional(),
+    /** Project runs: the project, and a separately billed phase to bill on its own. */
+    projectId: idSchema.optional(),
+    phaseId: idSchema.optional(),
+    mode: z.enum(projectBillingModes).optional(),
+    /** Deposit and progress runs: a dollar amount, or a percentage of the fixed fee. */
+    amount: z.number().positive().max(100_000_000).optional(),
+    percent: z.number().positive().max(100).optional(),
+    /** Deposit and progress runs: the line's wording (a milestone name, say). */
+    description: z.string().trim().min(1).max(300).optional(),
     /** Ticket runs bill approved time worked up to and including this date. */
     throughDate: isoDate.optional(),
     invoiceDate: isoDate.optional(),
@@ -808,6 +836,29 @@ export const billingRunCreateSchema = z
         path: ["throughDate"],
         message: "Choose the last day to bill",
       });
+    if (v.kind === "project") {
+      if (!v.projectId)
+        ctx.addIssue({ code: "custom", path: ["projectId"], message: "Choose the project" });
+      if (!v.mode) ctx.addIssue({ code: "custom", path: ["mode"], message: "Choose what to bill" });
+      if (v.mode === "time_materials" && !v.throughDate)
+        ctx.addIssue({
+          code: "custom",
+          path: ["throughDate"],
+          message: "Choose the last day to bill",
+        });
+      if ((v.mode === "deposit" || v.mode === "progress") && !v.amount && !v.percent)
+        ctx.addIssue({
+          code: "custom",
+          path: ["amount"],
+          message: "Enter an amount or a percentage of the fixed fee",
+        });
+      if (v.amount && v.percent)
+        ctx.addIssue({
+          code: "custom",
+          path: ["percent"],
+          message: "Enter an amount or a percentage, not both",
+        });
+    }
   });
 export type BillingRunCreate = z.infer<typeof billingRunCreateSchema>;
 
@@ -998,3 +1049,202 @@ export const creditMemoListQuerySchema = paginationSchema.extend({
 });
 
 export type CreditMemoCreate = z.input<typeof creditMemoCreateSchema>;
+
+// ---------------------------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------------------------
+
+export const projectStatuses = [
+  "planning",
+  "open",
+  "on_hold",
+  "ready_to_invoice",
+  "closed",
+  "canceled",
+] as const;
+export const projectBillingMethods = [
+  "actual_rates",
+  "fixed_fee",
+  "not_to_exceed",
+  "override_rate",
+] as const;
+export type ProjectStatus = (typeof projectStatuses)[number];
+export type ProjectBillingMethod = (typeof projectBillingMethods)[number];
+
+export interface Phase {
+  id: number;
+  projectId: number;
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  budgetHours: string | null;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  billSeparately: boolean;
+  billingMethod: ProjectBillingMethod | null;
+  billingAmount: string | null;
+  notes: string | null;
+  ticketCount: number;
+  hoursLogged: string;
+}
+
+export interface Project {
+  id: number;
+  companyId: number;
+  company: string;
+  siteId: number | null;
+  site: string | null;
+  name: string;
+  projectType: string | null;
+  status: ProjectStatus;
+  managerMemberId: number | null;
+  billingMethod: ProjectBillingMethod;
+  billingAmount: string | null;
+  poNumber: string | null;
+  poAmount: string | null;
+  estimatedStart: string | null;
+  estimatedEnd: string | null;
+  actualStart: string | null;
+  actualEnd: string | null;
+  budgetHours: string | null;
+  notes: string | null;
+  closedAt: string | null;
+  ticketCount: number;
+  openTicketCount: number;
+  hoursLogged: string;
+  /** Present on the detail view. */
+  phases?: Phase[];
+}
+
+const optMoney = z.number().min(0).max(100_000_000);
+const optHours = z.number().min(0).max(1_000_000);
+
+const projectBillingRefine = (
+  v: { billingMethod?: string; billingAmount?: number | null },
+  ctx: z.RefinementCtx,
+) => {
+  if (v.billingMethod && v.billingMethod !== "actual_rates" && !(Number(v.billingAmount) > 0))
+    ctx.addIssue({
+      code: "custom",
+      path: ["billingAmount"],
+      message: "Enter the fee, cap or rate for this billing method",
+    });
+};
+
+export const projectCreateSchema = z
+  .object({
+    companyId: idSchema,
+    siteId: idSchema.optional(),
+    name: z.string().trim().min(1).max(300),
+    projectType: z.string().trim().max(100).optional(),
+    status: z.enum(projectStatuses).default("open"),
+    managerMemberId: idSchema.optional(),
+    billingMethod: z.enum(projectBillingMethods).default("fixed_fee"),
+    billingAmount: optMoney.nullable().optional(),
+    poNumber: z.string().trim().max(100).optional(),
+    poAmount: optMoney.optional(),
+    estimatedStart: isoDate.optional(),
+    estimatedEnd: isoDate.optional(),
+    budgetHours: optHours.optional(),
+    notes: z.string().trim().max(10000).optional(),
+  })
+  .superRefine(projectBillingRefine);
+export type ProjectCreate = z.input<typeof projectCreateSchema>;
+
+export const projectUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(300),
+    siteId: idSchema.nullable(),
+    projectType: z.string().trim().max(100).nullable(),
+    status: z.enum(projectStatuses),
+    managerMemberId: idSchema.nullable(),
+    billingMethod: z.enum(projectBillingMethods),
+    billingAmount: optMoney.nullable(),
+    poNumber: z.string().trim().max(100).nullable(),
+    poAmount: optMoney.nullable(),
+    estimatedStart: isoDate.nullable(),
+    estimatedEnd: isoDate.nullable(),
+    actualStart: isoDate.nullable(),
+    actualEnd: isoDate.nullable(),
+    budgetHours: optHours.nullable(),
+    notes: z.string().trim().max(10000).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type ProjectUpdate = z.infer<typeof projectUpdateSchema>;
+
+export const projectListQuerySchema = paginationSchema.extend({
+  q: z.string().trim().min(1).max(100).optional(),
+  companyId: idSchema.optional(),
+  managerMemberId: idSchema.optional(),
+  /** active = planning/open/on hold/ready to invoice (default) */
+  state: z.enum(["active", "closed", "all"]).default("active"),
+});
+
+export const phaseCreateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(300),
+    description: z.string().trim().max(5000).optional(),
+    sortOrder: z.number().int().min(0).max(10000).optional(),
+    budgetHours: optHours.optional(),
+    scheduledStart: isoDate.optional(),
+    scheduledEnd: isoDate.optional(),
+    billSeparately: z.boolean().default(false),
+    billingMethod: z.enum(projectBillingMethods).optional(),
+    billingAmount: optMoney.nullable().optional(),
+    notes: z.string().trim().max(5000).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (!v.billSeparately && (v.billingMethod || v.billingAmount))
+      ctx.addIssue({
+        code: "custom",
+        path: ["billingMethod"],
+        message: "A phase has its own billing only when it is billed separately",
+      });
+    projectBillingRefine(v, ctx);
+  });
+export type PhaseCreate = z.input<typeof phaseCreateSchema>;
+
+export const phaseUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(300),
+    description: z.string().trim().max(5000).nullable(),
+    sortOrder: z.number().int().min(0).max(10000),
+    budgetHours: optHours.nullable(),
+    scheduledStart: isoDate.nullable(),
+    scheduledEnd: isoDate.nullable(),
+    billSeparately: z.boolean(),
+    billingMethod: z.enum(projectBillingMethods).nullable(),
+    billingAmount: optMoney.nullable(),
+    notes: z.string().trim().max(5000).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type PhaseUpdate = z.infer<typeof phaseUpdateSchema>;
+
+/** Where one billing scope (the project, or a phase billed separately) stands. */
+export interface ProjectBillingScope {
+  phaseId: number | null;
+  name: string;
+  billingMethod: ProjectBillingMethod;
+  billingAmount: string | null;
+  /** Fixed fee billed so far (deposit, progress and final lines on non-void invoices, drafts included). */
+  feeBilled: string;
+  feeRemaining: string | null;
+  /** The final invoice exists, so the scope is closed out. */
+  finalBilled: boolean;
+  /** Everything invoiced for the scope so far (fees, labor and materials), drafts included. */
+  invoicedToDate: string;
+  unbilledHours: string;
+  unbilledLabor: string;
+  unbilledCharges: string;
+  /** Open or submitted time that has to be approved before it can be billed. */
+  unapprovedEntries: number;
+  openTickets: number;
+}
+
+export interface ProjectBilling {
+  projectId: number;
+  status: ProjectStatus;
+  scopes: ProjectBillingScope[];
+}

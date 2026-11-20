@@ -7,6 +7,7 @@ import { CompaniesPage } from "./CompaniesPage";
 import { CompanyPage } from "./CompanyPage";
 import { LoginPage } from "./LoginPage";
 import { MailPage } from "./MailPage";
+import { ProjectsPage } from "./ProjectsPage";
 import { TicketsPage } from "./TicketsPage";
 import { TimePage } from "./TimePage";
 import { TimerBar } from "./TimerBar";
@@ -28,7 +29,7 @@ const NAV = [
   { id: "tickets", label: "Service tickets", ready: true, perm: "service.ticket.read" },
   { id: "time", label: "Time", ready: true, perm: "timekeeping.time.read_own" },
   { id: "dispatch", label: "Dispatch", ready: false },
-  { id: "projects", label: "Projects", ready: false },
+  { id: "projects", label: "Projects", ready: true, perm: "project.read" },
   { id: "agreements", label: "Agreements", ready: true, perm: "billing.agreement.read" },
   { id: "billing", label: "Billing", ready: true, perm: "billing.invoice.read" },
   { id: "mail", label: "Email", ready: true, perm: "service.mailbox.manage" },
@@ -202,6 +203,9 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
           )}
           {page === "billing" && can("billing.invoice.read") && (
             <BillingPage can={can} routeId={route.id} />
+          )}
+          {page === "projects" && can("project.read") && (
+            <ProjectsPage can={can} lookups={lookups} routeId={route.id} />
           )}
           {page === "mail" && can("service.mailbox.manage") && <MailPage />}
           {page === "admin" && can("iam.manage") && <AdminPage />}

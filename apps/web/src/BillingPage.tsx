@@ -50,10 +50,24 @@ const Badge = ({ status }: { status: string }) => (
 );
 const number = (i: Invoice) => (i.invoiceNumber === null ? "—" : `#${i.invoiceNumber}`);
 /** What a run covers, for lists and headings. */
-const runLabel = (r: { kind: string; periodMonth: string; throughDate: string | null }) =>
-  r.kind === "ticket" && r.throughDate
-    ? `Ticket time and materials through ${shortDate(r.throughDate)}`
-    : monthLabel(r.periodMonth);
+const PROJECT_MODE: Record<string, string> = {
+  time_materials: "time and materials",
+  deposit: "down payment",
+  progress: "progress billing",
+  final: "final invoice",
+};
+const runLabel = (r: {
+  kind: string;
+  periodMonth: string;
+  throughDate: string | null;
+  project?: string | null;
+  projectMode?: string | null;
+}) =>
+  r.kind === "project"
+    ? `Project ${PROJECT_MODE[r.projectMode ?? ""] ?? "billing"}: ${r.project ?? ""}`
+    : r.kind === "ticket" && r.throughDate
+      ? `Ticket time and materials through ${shortDate(r.throughDate)}`
+      : monthLabel(r.periodMonth);
 
 const monthLabel = (m: string) =>
   new Date(`${m}-01T00:00:00Z`).toLocaleDateString("en-US", {

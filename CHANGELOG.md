@@ -10,6 +10,16 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Projects and project invoicing. Migration 0018: `project.project` and `project.phase`, and `service.ticket` gains
+  `phase_id` (with the existing `project_id` now a real foreign key). A project has a customer, a billing method (fixed
+  fee, actual rates, not-to-exceed, override rate), PO, budget hours and dates; a phase can be billed separately, with
+  terms of its own. Project tickets are ordinary tickets that point at the project, and the database guards that the
+  ticket is the project's customer's and the phase is the project's own. Migration 0019 adds project billing runs for
+  one scope (the project, or a separately billed phase): time and materials through a date, a deposit, a progress or
+  milestone payment (dollars or percent of the fee), and a final invoice that bills the rest of the fixed fee plus any
+  unbilled materials and closes out the scope's time. A database trigger keeps a scope's fee lines from adding up to
+  more than its fixed fee. Ticket runs no longer pick up project tickets. New Projects page (list, detail with billing
+  position, phases, tickets, and a Bill dialog with preview), `project.read` / `project.write` permissions.
 - Credit memos. Migration 0017: `billing.credit_memo`, `credit_memo_line` and `credit_application`. A memo is issued
   for a customer (optionally against one of their invoices, whose tax it copies and whose total it cannot exceed across
   all its memos), takes its number from the same gap-free series as invoices (as in ConnectWise, where a credit memo is

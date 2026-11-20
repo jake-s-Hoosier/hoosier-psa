@@ -508,16 +508,24 @@ function TicketDetail(props: {
         </label>
       </div>
 
-      <BillingField
-        ticket={ticket}
-        canEdit={props.can("service.ticket.write")}
-        disabled={busy}
-        onSave={(billingMethod, billingAmount) =>
-          run(async () =>
-            props.onChanged(await updateTicket(ticket.id, { billingMethod, billingAmount })),
-          )
-        }
-      />
+      {ticket.projectId !== null ? (
+        <div className="muted">
+          Project work, billed with{" "}
+          <Link to={`/projects/${ticket.projectId}`}>{ticket.project}</Link>
+          {ticket.phase ? ` (${ticket.phase})` : ""}
+        </div>
+      ) : (
+        <BillingField
+          ticket={ticket}
+          canEdit={props.can("service.ticket.write")}
+          disabled={busy}
+          onSave={(billingMethod, billingAmount) =>
+            run(async () =>
+              props.onChanged(await updateTicket(ticket.id, { billingMethod, billingAmount })),
+            )
+          }
+        />
+      )}
       <AgreementField
         ticket={ticket}
         canRead={props.can("billing.agreement.read")}
