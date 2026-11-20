@@ -357,6 +357,66 @@ async function main(): Promise<void> {
       );
       day++;
     }
+    // Agreement types, a few agreements with recurring lines, and tickets covered by them.
+    const agreementTypes: Record<string, number> = {};
+    for (const [name, cycle, coverage, renew] of [
+      ["ESP", "quarterly", "unlimited_remote", false],
+      ["BASE", "monthly", "none", true],
+      ["JFI", "monthly", "unlimited_remote", true],
+      ["Monitoring", "monthly", "none", true],
+    ] as const)
+      agreementTypes[name] = await one(
+        "INSERT INTO billing.agreement_type (name, bill_cycle, coverage, auto_renew) VALUES ($1,$2,$3,$4) RETURNING id",
+        [name, cycle, coverage, renew],
+      );
+    const ago = (days: number) => `(current_date - ${days}::int)`;
+    const agreementFor: Record<string, number> = {};
+    for (const [ident, type, name, startAgo, endIn, lines] of [
+      [
+        "NORTHSIDE",
+        "ESP",
+        "Extended Service Plan",
+        300,
+        65,
+        [["Annual inspection and remote support", 1, 450, 120]],
+      ],
+      [
+        "LAKEVIEW",
+        "Monitoring",
+        "Alarm monitoring",
+        500,
+        null,
+        [
+          ["Alarm.com monitoring, per panel", 3, 39.99, 14.5],
+          ["Cellular communicator", 3, 9.99, 3.25],
+        ],
+      ],
+      ["SPEEDWAY", "JFI", "Just Fix It", 90, null, [["Unlimited remote support", 1, 249, 60]]],
+    ] as const) {
+      const c = co[ident];
+      if (!c) continue;
+      const aid = await one(
+        `INSERT INTO billing.agreement
+           (company_id, bill_to_company_id, type_id, name, start_date, end_date, auto_renew, bill_cycle,
+            bill_start_date, coverage)
+         SELECT $1, $1, t.id, $3, ${ago(startAgo)}, ${endIn === null ? "NULL" : `current_date + ${endIn}::int`},
+                t.auto_renew, t.bill_cycle, ${ago(startAgo)}, t.coverage
+           FROM billing.agreement_type t WHERE t.id = $2 RETURNING id`,
+        [c.id, agreementTypes[type], name],
+      );
+      agreementFor[ident] = aid;
+      for (const [desc, qty, price, cost] of lines)
+        await q(
+          `INSERT INTO billing.agreement_addition
+             (agreement_id, description, quantity, unit_price, unit_cost, effective_from)
+           VALUES ($1,$2,$3,$4,$5,${ago(startAgo)})`,
+          [aid, desc, qty, price, cost],
+        );
+    }
+    await q(
+      `UPDATE service.ticket t SET agreement_id = a.id
+         FROM billing.agreement a WHERE a.company_id = t.company_id`,
+    );
     await pool.query("COMMIT");
     console.log(
       `Demo data loaded: ${customers.length} companies, ${ticketIds.length} tickets, ${Object.keys(members).length} staff.`,

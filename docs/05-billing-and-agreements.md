@@ -1,7 +1,7 @@
 # 05. Billing and agreements
 
-Specification for milestone 2. The schema for this module is *planned*; this document is what the
-migrations and tests will be built against. Open questions are listed at the end.
+Specification for milestone 2. Agreements and additions are implemented (`0012_agreements.sql`, `packages/shared/src/agreements.ts`);
+billing runs and invoices are still planned and are what this document is built to guide. Open questions are listed at the end.
 
 ## Concepts
 
@@ -89,6 +89,15 @@ flag additions with negative or below-floor margin, and show **service expense a
 (labor logged to its tickets), the real cost of an agreement being visible over its life and not
 precomputable.
 
+## Decisions made while building agreements
+
+- An addition's `unit_price` and `unit_cost` are **per month**; a quarterly or annual cycle multiplies by its months
+  when billing. (Confirm against the CW import: if CW additions are priced per cycle, the importer divides.)
+- The **cancellation date is the last day of coverage**; the agreement reads as cancelled the day after, its lines end
+  on that date, and lines that never started are removed.
+- Status (`pending`, `active`, `expired`, `cancelled`) is computed, never stored. An auto-renewing agreement past its
+  end date stays active.
+
 ## Open questions
 
 1. Invoice grouping preference: one invoice per company per run, or per agreement?
@@ -96,3 +105,4 @@ precomputable.
 3. Block-hour agreements: how many exist and how are they replenished?
 4. Sales tax: single code per company, or line-level? (Mirror shows `tax_code` at invoice level.)
 5. Statements: required, or invoices only?
+6. Are CW addition prices per month or per bill cycle? (Decides how the importer maps them.)

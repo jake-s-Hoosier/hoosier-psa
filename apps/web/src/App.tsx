@@ -1,6 +1,7 @@
 import type { TimeEntry } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
 import { AdminPage } from "./AdminPage";
+import { AgreementsPage } from "./AgreementsPage";
 import { CompaniesPage } from "./CompaniesPage";
 import { CompanyPage } from "./CompanyPage";
 import { LoginPage } from "./LoginPage";
@@ -27,7 +28,7 @@ const NAV = [
   { id: "time", label: "Time", ready: true, perm: "timekeeping.time.read_own" },
   { id: "dispatch", label: "Dispatch", ready: false },
   { id: "projects", label: "Projects", ready: false },
-  { id: "agreements", label: "Agreements", ready: false },
+  { id: "agreements", label: "Agreements", ready: true, perm: "billing.agreement.read" },
   { id: "billing", label: "Billing", ready: false },
   { id: "mail", label: "Email", ready: true, perm: "service.mailbox.manage" },
   { id: "admin", label: "Access", ready: true, perm: "iam.manage" },
@@ -194,6 +195,9 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
               memberId={me?.member.id ?? null}
               onTimerChange={refreshTimer}
             />
+          )}
+          {page === "agreements" && can("billing.agreement.read") && (
+            <AgreementsPage can={can} lookups={lookups} routeId={route.id} />
           )}
           {page === "mail" && can("service.mailbox.manage") && <MailPage />}
           {page === "admin" && can("iam.manage") && <AdminPage />}

@@ -1,4 +1,10 @@
 import type {
+  AdditionCreate,
+  Agreement,
+  AgreementAddition,
+  AgreementCreate,
+  AgreementDetail,
+  AgreementUpdate,
   Company,
   CompanyNote,
   CompanyNoteCreate,
@@ -101,6 +107,13 @@ export interface Lookups {
   members: Array<{ id: number; identifier: string; name: string; isFieldTech: boolean }>;
   companyStatuses: Array<{ id: number; name: string }>;
   territories: Array<{ id: number; name: string }>;
+  agreementTypes: Array<{
+    id: number;
+    name: string;
+    billCycle: string;
+    coverage: string;
+    autoRenew: boolean;
+  }>;
 }
 
 export const getLookups = () => get<Lookups>("/api/v1/lookups");
@@ -144,6 +157,7 @@ export const updateTicket = (
     priorityId?: number;
     companyId?: number;
     siteId?: number | null;
+    agreementId?: number | null;
     contactId?: number | null;
   },
 ) => request<Ticket>("PATCH", `/api/v1/tickets/${id}`, body);
@@ -482,3 +496,45 @@ export async function exportPayPeriodCsv(id: number): Promise<void> {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
+
+// ---- Agreements ----
+export const listAgreements = (
+  p: { q?: string; status?: string; companyId?: number; typeId?: number },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "200", status: p.status ?? "active" });
+  if (p.q?.trim()) params.set("q", p.q.trim());
+  if (p.companyId) params.set("companyId", String(p.companyId));
+  if (p.typeId) params.set("typeId", String(p.typeId));
+  return get<ListResponse<Agreement>>(`/api/v1/agreements?${params}`, signal);
+};
+export const getAgreement = (id: number, signal?: AbortSignal) =>
+  get<AgreementDetail>(`/api/v1/agreements/${id}`, signal);
+export const createAgreement = (body: AgreementCreate) =>
+  request<Agreement>("POST", "/api/v1/agreements", body);
+export const updateAgreement = (id: number, body: AgreementUpdate) =>
+  request<Agreement>("PATCH", `/api/v1/agreements/${id}`, body);
+export const cancelAgreement = (id: number, date: string, reason: string) =>
+  request<Agreement>("POST", `/api/v1/agreements/${id}/cancel`, { date, reason });
+export const addAddition = (id: number, body: AdditionCreate) =>
+  request<AgreementAddition>("POST", `/api/v1/agreements/${id}/additions`, body);
+export const changeAddition = (
+  id: number,
+  additionId: number,
+  body: { effectiveFrom: string; quantity?: number; unitPrice?: number; unitCost?: number },
+) =>
+  request<AgreementAddition>(
+    "POST",
+    `/api/v1/agreements/${id}/additions/${additionId}/change`,
+    body,
+  );
+export const endAddition = (id: number, additionId: number, date: string) =>
+  request<AgreementAddition>("POST", `/api/v1/agreements/${id}/additions/${additionId}/end`, {
+    date,
+  });
+export const createAgreementType = (body: {
+  name: string;
+  billCycle: string;
+  coverage: string;
+  autoRenew: boolean;
+}) => request<{ id: number }>("POST", "/api/v1/agreements/types", body);

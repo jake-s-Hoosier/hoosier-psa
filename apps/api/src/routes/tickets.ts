@@ -30,6 +30,8 @@ interface TicketRow {
   priority_id: string;
   priority: string;
   owner_member_id: string | null;
+  agreement_id: string | null;
+  agreement: string | null;
   entered_at: Date;
   closed_at: Date | null;
   updated_at: Date;
@@ -40,6 +42,7 @@ const SELECT_TICKET = `
          NULLIF(trim(concat(ct.first_name, ' ', ct.last_name)), '') AS contact,
          t.board_id, b.name AS board, t.status_id, s.name AS status, s.is_closed,
          t.priority_id, p.name AS priority, t.owner_member_id,
+         t.agreement_id, ag.name AS agreement,
          t.entered_at, t.closed_at, t.updated_at
     FROM service.ticket t
     JOIN crm.company c ON c.id = t.company_id
@@ -47,7 +50,8 @@ const SELECT_TICKET = `
     LEFT JOIN crm.contact ct ON ct.id = t.contact_id
     JOIN service.board b ON b.id = t.board_id
     JOIN service.board_status s ON s.id = t.status_id
-    JOIN service.priority p ON p.id = t.priority_id`;
+    JOIN service.priority p ON p.id = t.priority_id
+    LEFT JOIN billing.agreement ag ON ag.id = t.agreement_id`;
 
 const optId = (v: string | null) => (v === null ? null : Number(v));
 
@@ -69,6 +73,8 @@ function toTicket(r: TicketRow): Ticket {
     priorityId: Number(r.priority_id),
     priority: r.priority,
     ownerMemberId: optId(r.owner_member_id),
+    agreementId: optId(r.agreement_id),
+    agreement: r.agreement,
     enteredAt: r.entered_at.toISOString(),
     closedAt: r.closed_at?.toISOString() ?? null,
     updatedAt: r.updated_at.toISOString(),
@@ -255,6 +261,25 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
             );
         }
         set("contact_id", body.contactId);
+      }
+      if (body.agreementId !== undefined) {
+        if (body.agreementId !== null) {
+          // The agreement must belong to (or be billed to) the ticket's company.
+          const ok = await client.query(
+            "SELECT 1 FROM billing.agreement WHERE id = $1 AND (company_id = $2 OR bill_to_company_id = $2)",
+            [body.agreementId, targetCompany],
+          );
+          if (!ok.rowCount)
+            throw new HttpError(
+              422,
+              "Invalid agreement",
+              "The agreement is not for this ticket's company",
+            );
+        }
+        set("agreement_id", body.agreementId);
+      } else if (body.companyId !== undefined && body.companyId !== Number(current.company_id)) {
+        // Moving to another company drops an agreement that belonged to the old one.
+        sets.push("agreement_id = NULL");
       }
       if (body.statusId !== undefined && body.statusId !== Number(current.status_id)) {
         const target = await statusOnBoard(client, body.statusId, Number(current.board_id));

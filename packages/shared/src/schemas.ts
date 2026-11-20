@@ -226,6 +226,8 @@ export const ticketSchema = z.object({
   priorityId: z.number().int(),
   priority: z.string(),
   ownerMemberId: z.number().int().nullable(),
+  agreementId: z.number().int().nullable(),
+  agreement: z.string().nullable(),
   enteredAt: z.string(),
   closedAt: z.string().nullable(),
   updatedAt: z.string(),
@@ -270,6 +272,8 @@ export const ticketUpdateSchema = z
     ownerMemberId: idSchema.nullable(),
     siteId: idSchema.nullable(),
     contactId: idSchema.nullable(),
+    /** The agreement that covers this work, or null to clear it. */
+    agreementId: idSchema.nullable(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
@@ -442,3 +446,182 @@ export const payPeriodSchema = z.object({
   exportedAt: z.string().nullable(),
 });
 export type PayPeriod = z.infer<typeof payPeriodSchema>;
+
+// ---------------------------------------------------------------------------------------------
+// Agreements (docs/05)
+// ---------------------------------------------------------------------------------------------
+
+const billCycleEnum = z.enum(["monthly", "quarterly", "semi_annual", "annual"]);
+const coverageEnum = z.enum(["none", "block_hours", "unlimited_remote", "covered"]);
+const money4 = z.number().min(0).max(9_999_999);
+
+export const agreementTypeSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  billCycle: billCycleEnum,
+  coverage: coverageEnum,
+  autoRenew: z.boolean(),
+  isActive: z.boolean(),
+});
+export type AgreementType = z.infer<typeof agreementTypeSchema>;
+
+export const agreementTypeInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    billCycle: billCycleEnum,
+    coverage: coverageEnum,
+    autoRenew: z.boolean(),
+    isActive: z.boolean(),
+  })
+  .partial();
+
+export const agreementAdditionSchema = z.object({
+  id: z.number().int(),
+  agreementId: z.number().int(),
+  productId: z.number().int().nullable(),
+  description: z.string(),
+  quantity: z.number(),
+  unitPrice: z.number(),
+  unitCost: z.number(),
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().nullable(),
+  prorate: z.boolean(),
+  vendorCompanyId: z.number().int().nullable(),
+  vendor: z.string().nullable(),
+});
+export type AgreementAddition = z.infer<typeof agreementAdditionSchema>;
+
+export const agreementSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  companyId: z.number().int(),
+  company: z.string(),
+  billToCompanyId: z.number().int(),
+  billToCompany: z.string(),
+  typeId: z.number().int(),
+  type: z.string(),
+  status: z.enum(["pending", "active", "expired", "cancelled"]),
+  startDate: z.string(),
+  endDate: z.string().nullable(),
+  autoRenew: z.boolean(),
+  renewalNoticeDays: z.number().int(),
+  cancelledDate: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  billCycle: billCycleEnum,
+  billStartDate: z.string(),
+  coverage: coverageEnum,
+  blockHours: z.number().nullable(),
+  poNumber: z.string().nullable(),
+  notes: z.string().nullable(),
+  /** Monthly recurring revenue and cost of the lines in effect today. */
+  rmr: z.string(),
+  monthlyCost: z.string(),
+});
+export type Agreement = z.infer<typeof agreementSchema>;
+
+export interface AgreementDetail extends Agreement {
+  additions: AgreementAddition[];
+  /** Labor and cost logged on tickets covered by this agreement: its real service expense. */
+  serviceHours: number;
+  serviceCost: number;
+  ticketCount: number;
+}
+
+export const agreementListQuerySchema = paginationSchema.extend({
+  q: z.string().trim().min(1).max(100).optional(),
+  companyId: idSchema.optional(),
+  typeId: idSchema.optional(),
+  status: z.enum(["active", "pending", "expired", "cancelled", "all"]).default("active"),
+});
+
+export const agreementCreateSchema = z
+  .object({
+    companyId: idSchema,
+    billToCompanyId: idSchema.optional(),
+    typeId: idSchema,
+    name: z.string().trim().min(1).max(200),
+    startDate: isoDate,
+    endDate: isoDate.nullable().optional(),
+    autoRenew: z.boolean().optional(),
+    renewalNoticeDays: z.number().int().min(0).max(730).optional(),
+    billCycle: billCycleEnum.optional(),
+    billStartDate: isoDate.optional(),
+    coverage: coverageEnum.optional(),
+    blockHours: z.number().min(0).max(100000).nullable().optional(),
+    poNumber: z.string().trim().max(100).nullable().optional(),
+    notes: z.string().trim().max(5000).nullable().optional(),
+  })
+  .refine((v) => v.endDate == null || v.endDate >= v.startDate, {
+    path: ["endDate"],
+    message: "The end date cannot be before the start date",
+  });
+export type AgreementCreate = z.infer<typeof agreementCreateSchema>;
+
+export const agreementUpdateSchema = z
+  .object({
+    billToCompanyId: idSchema,
+    typeId: idSchema,
+    name: z.string().trim().min(1).max(200),
+    startDate: isoDate,
+    endDate: isoDate.nullable(),
+    autoRenew: z.boolean(),
+    renewalNoticeDays: z.number().int().min(0).max(730),
+    billCycle: billCycleEnum,
+    billStartDate: isoDate,
+    coverage: coverageEnum,
+    blockHours: z.number().min(0).max(100000).nullable(),
+    poNumber: z.string().trim().max(100).nullable(),
+    notes: z.string().trim().max(5000).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type AgreementUpdate = z.infer<typeof agreementUpdateSchema>;
+
+export const agreementCancelSchema = z.object({
+  date: isoDate,
+  reason: z.string().trim().min(1).max(500),
+});
+
+export const additionCreateSchema = z
+  .object({
+    productId: idSchema.optional(),
+    description: z.string().trim().min(1).max(500),
+    quantity: z.number().positive().max(1_000_000),
+    unitPrice: money4,
+    unitCost: money4.default(0),
+    effectiveFrom: isoDate,
+    effectiveTo: isoDate.nullable().optional(),
+    prorate: z.boolean().default(true),
+    vendorCompanyId: idSchema.optional(),
+  })
+  .refine((v) => v.effectiveTo == null || v.effectiveTo >= v.effectiveFrom, {
+    path: ["effectiveTo"],
+    message: "The end date cannot be before the start date",
+  });
+export type AdditionCreate = z.infer<typeof additionCreateSchema>;
+
+/** A change to price or quantity: closes the current line the day before and opens a new one. */
+export const additionChangeSchema = z
+  .object({
+    effectiveFrom: isoDate,
+    quantity: z.number().positive().max(1_000_000).optional(),
+    unitPrice: money4.optional(),
+    unitCost: money4.optional(),
+  })
+  .refine(
+    (v) => v.quantity !== undefined || v.unitPrice !== undefined || v.unitCost !== undefined,
+    {
+      message: "Change at least one of quantity, unit price or unit cost",
+    },
+  );
+
+export const additionEndSchema = z.object({ date: isoDate });
+
+export const additionEditSchema = z
+  .object({
+    description: z.string().trim().min(1).max(500),
+    prorate: z.boolean(),
+    vendorCompanyId: idSchema.nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");

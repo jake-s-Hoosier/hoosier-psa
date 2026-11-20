@@ -19,3 +19,6 @@ export const addressLine = (s: {
   [s.addressLine1, [s.city, s.state].filter(Boolean).join(", "), s.postalCode]
     .filter(Boolean)
     .join(" · ");
+
+export const usd = (n: number | string) =>
+  Number(n).toLocaleString("en-US", { style: "currency", currency: "USD" });

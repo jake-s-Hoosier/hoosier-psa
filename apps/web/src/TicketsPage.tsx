@@ -1,4 +1,4 @@
-import type { Ticket, TicketNote } from "@hoosier/shared";
+import type { Agreement, Ticket, TicketNote } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
 import { MoveToCompany } from "./MoveToCompany";
 import { AttachmentsSection, ResourcesSection } from "./TicketFiles";
@@ -9,6 +9,7 @@ import {
   getCompanyOverview,
   getLookups,
   getTicket,
+  listAgreements,
   listCompanies,
   listNotes,
   listTickets,
@@ -266,6 +267,50 @@ export function TicketsPage({
   );
 }
 
+/** Which agreement covers this ticket. Staff who cannot see agreements still see its name. */
+function AgreementField(props: {
+  ticket: Ticket;
+  canRead: boolean;
+  canEdit: boolean;
+  disabled: boolean;
+  onPick: (agreementId: number | null) => void;
+}) {
+  const { ticket } = props;
+  const [options, setOptions] = useState<Agreement[]>([]);
+  useEffect(() => {
+    if (!props.canRead) return;
+    listAgreements({ companyId: ticket.companyId, status: "active" })
+      .then((r) => setOptions(r.items))
+      .catch(() => setOptions([]));
+  }, [props.canRead, ticket.companyId]);
+  if (!props.canRead) {
+    return ticket.agreement ? <div className="muted">Covered by {ticket.agreement}</div> : null;
+  }
+  if (options.length === 0 && !ticket.agreementId) return null;
+  return (
+    <label>
+      Agreement
+      <select
+        className="input"
+        value={ticket.agreementId ?? ""}
+        disabled={props.disabled || !props.canEdit}
+        onChange={(e) => props.onPick(e.target.value ? Number(e.target.value) : null)}
+      >
+        <option value="">None</option>
+        {ticket.agreementId && !options.some((o) => o.id === ticket.agreementId) && (
+          <option value={ticket.agreementId}>{ticket.agreement}</option>
+        )}
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+      {ticket.agreementId && <Link to={`/agreements/${ticket.agreementId}`}>Open agreement</Link>}
+    </label>
+  );
+}
+
 function TicketDetail(props: {
   can: (key: string) => boolean;
   memberId: number | null;
@@ -378,6 +423,16 @@ function TicketDetail(props: {
           </select>
         </label>
       </div>
+
+      <AgreementField
+        ticket={ticket}
+        canRead={props.can("billing.agreement.read")}
+        canEdit={props.can("service.ticket.write")}
+        disabled={busy}
+        onPick={(agreementId) =>
+          run(async () => props.onChanged(await updateTicket(ticket.id, { agreementId })))
+        }
+      />
 
       {props.can("service.ticket.write") && (
         <MoveToCompany

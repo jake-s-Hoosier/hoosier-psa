@@ -6,6 +6,14 @@ the first production release.
 ## [Unreleased]
 
 ### Added
+- Agreements (milestone 2, first stage). New `billing` schema: agreement types, agreements and recurring lines
+  ("additions"), plus the agreement links on tickets and time that earlier migrations had deferred. Lines are
+  effective-dated and never edited in place; a price or quantity change ends the old line and starts a new one (a
+  database guard enforces it). Pure rules in `@hoosier/shared` for status, monthly recurring revenue and cost, margin,
+  proration and renewal windows, with tests. Agreements screen (`#/agreements/12`): list with status and type filters,
+  detail with terms, lines and history, service hours and cost logged on covered tickets; create, edit, cancel, add,
+  change and end lines. The company page lists its agreements, and a ticket can be set to the agreement that covers it.
+  New permissions `billing.agreement.read` and `billing.agreement.write`. Nothing here bills anyone yet.
 - Time screen (`#/time`). **My timesheet**: week view (Sunday to Saturday) with day totals, add, edit and remove
   entries, submit and recall the week. **Approvals** (approvers): per-member open, submitted and approved hours for a
   week, with approve (never your own time). **Pay periods** (period lock): create a month's two periods, preview the

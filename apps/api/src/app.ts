@@ -18,6 +18,7 @@ import {
 import type { Config } from "./config.js";
 import { HttpError, errorHandler } from "./errors.js";
 import { adminRoutes } from "./routes/admin.js";
+import { agreementRoutes } from "./routes/agreements.js";
 import { authRoutes } from "./routes/auth.js";
 import { companyRoutes } from "./routes/companies.js";
 import { crmRecordRoutes } from "./routes/crm-records.js";
@@ -196,6 +197,7 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
     });
   }
   app.register(adminRoutes, { prefix: "/api/v1/admin" });
+  app.register(agreementRoutes, { prefix: "/api/v1/agreements" });
   app.register(companyRoutes, { prefix: "/api/v1/companies" });
   app.register(crmRecordRoutes, { prefix: "/api/v1/companies" });
   app.register(lookupRoutes, { prefix: "/api/v1/lookups" });

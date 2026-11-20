@@ -647,3 +647,53 @@ tr.selected td {
   flex-direction: row;
   align-items: center;
 }
+
+/* Agreements */
+.terms {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px var(--space-4);
+  margin: var(--space-3) 0;
+}
+.terms dt {
+  color: var(--color-muted, #5b6472);
+}
+.terms dd {
+  margin: 0;
+}
+.section-head {
+  align-items: center;
+}
+.inline-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+}
+tr.dim td {
+  opacity: 0.55;
+}
+tfoot td {
+  border-top: 1px solid var(--color-border);
+}
+.badge.status-active {
+  background: #dcf3e1;
+}
+.badge.status-pending {
+  background: #fff4d6;
+}
+.badge.status-expired,
+.badge.status-cancelled {
+  background: #ececec;
+}
+.split .toolbar .input {
+  min-width: 0;
+  flex: 1 1 140px;
+}
+.split:has(.wide-detail) {
+  grid-template-columns: minmax(0, 1fr) 640px;
+}
+.detail table td,
+.detail table th {
+  padding-left: 8px;
+  padding-right: 8px;
+}

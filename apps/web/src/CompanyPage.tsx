@@ -8,6 +8,7 @@ import type {
   TimeEntry,
 } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
+import { CompanyAgreements } from "./AgreementsPage";
 import { NewTicketDialog } from "./TicketsPage";
 import {
   type Lookups,
@@ -214,6 +215,13 @@ export function CompanyPage({
         </div>
       </div>
 
+      {can("billing.agreement.read") && (
+        <CompanyAgreements
+          companyId={company.id}
+          canWrite={can("billing.agreement.write")}
+          lookups={lookups}
+        />
+      )}
       <CompanyTickets companyId={company.id} reload={reload} />
       <div className="two-col section">
         <CompanyTime companyId={company.id} lookups={lookups} reload={reload} />
