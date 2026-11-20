@@ -164,6 +164,8 @@ export const updateTicket = (
     siteId?: number | null;
     agreementId?: number | null;
     contactId?: number | null;
+    billingMethod?: Ticket["billingMethod"];
+    billingAmount?: number | null;
   },
 ) => request<Ticket>("PATCH", `/api/v1/tickets/${id}`, body);
 
@@ -549,10 +551,18 @@ export const listBillingRuns = (signal?: AbortSignal) =>
   get<{ items: BillingRun[] }>("/api/v1/billing/runs", signal);
 export const getBillingRun = (id: number, signal?: AbortSignal) =>
   get<BillingRun>(`/api/v1/billing/runs/${id}`, signal);
-export const previewBillingRun = (month: string, invoiceDate: string) =>
-  request<BillingRunPreview>("POST", "/api/v1/billing/runs", { month, invoiceDate, preview: true });
-export const createBillingRun = (month: string, invoiceDate: string, notes?: string) =>
-  request<BillingRun>("POST", "/api/v1/billing/runs", { month, invoiceDate, notes });
+/** An agreement run bills a month; a ticket run bills approved time through a date. */
+export type RunTarget =
+  | { kind: "agreement"; month: string }
+  | { kind: "ticket"; throughDate: string };
+export const previewBillingRun = (target: RunTarget, invoiceDate: string) =>
+  request<BillingRunPreview>("POST", "/api/v1/billing/runs", {
+    ...target,
+    invoiceDate,
+    preview: true,
+  });
+export const createBillingRun = (target: RunTarget, invoiceDate: string, notes?: string) =>
+  request<BillingRun>("POST", "/api/v1/billing/runs", { ...target, invoiceDate, notes });
 export const discardBillingRun = (id: number) =>
   request<BillingRun>("POST", `/api/v1/billing/runs/${id}/discard`);
 export const postBillingRun = (id: number) =>

@@ -4,10 +4,11 @@ import {
   type BillingRunPreview,
   type Invoice,
   type InvoiceLine,
-  type SkippedAgreement,
+  type SkippedItem,
   addDaysIso,
   agreementInvoiceLines,
   billingRunCreateSchema,
+  dec,
   dueDate,
   idSchema,
   invoiceLineUpdateSchema,
@@ -18,6 +19,7 @@ import {
   lineTotal,
   periodStartingIn,
   sumMoney,
+  ticketInvoiceLines,
 } from "@hoosier/shared";
 import type { FastifyPluginAsync } from "fastify";
 import type pg from "pg";
@@ -118,6 +120,7 @@ async function loadLines(q: Q, invoiceId: number): Promise<InvoiceLine[]> {
     kind: InvoiceLine["kind"];
     agreement_id: string | null;
     agreement: string | null;
+    ticket_id: string | null;
     description: string;
     period_start: string | null;
     period_end: string | null;
@@ -127,7 +130,7 @@ async function loadLines(q: Q, invoiceId: number): Promise<InvoiceLine[]> {
     cost_amount: string;
     taxable: boolean;
   }>(
-    `SELECT l.id, l.line_no, l.kind, l.agreement_id, a.name AS agreement, l.description,
+    `SELECT l.id, l.line_no, l.kind, l.agreement_id, a.name AS agreement, l.ticket_id, l.description,
             to_char(l.period_start, 'YYYY-MM-DD') AS period_start, to_char(l.period_end, 'YYYY-MM-DD') AS period_end,
             l.quantity, l.unit_price, l.amount, l.cost_amount, l.taxable
        FROM billing.invoice_line l LEFT JOIN billing.agreement a ON a.id = l.agreement_id
@@ -140,6 +143,7 @@ async function loadLines(q: Q, invoiceId: number): Promise<InvoiceLine[]> {
     kind: l.kind,
     agreementId: l.agreement_id === null ? null : Number(l.agreement_id),
     agreement: l.agreement,
+    ticketId: l.ticket_id === null ? null : Number(l.ticket_id),
     description: l.description,
     periodStart: l.period_start,
     periodEnd: l.period_end,
@@ -163,8 +167,14 @@ async function loadInvoice(q: Q, id: number, withLines = true): Promise<Invoice>
 // ---- Planning a run ----
 
 interface PlannedLine {
-  agreementId: number;
-  additionId: number;
+  kind: "agreement" | "time";
+  agreementId: number | null;
+  additionId: number | null;
+  ticketId: number | null;
+  /** The single line that bills a fixed-fee ticket's fee. */
+  ticketFee: boolean;
+  /** Time entries this line bills; they are linked to it while it is a draft. */
+  entryIds: number[];
   productId: number | null;
   description: string;
   periodStart: string;
@@ -193,14 +203,74 @@ interface PlannedInvoice {
 }
 
 /**
+ * Groups planned lines into invoices by who pays. The payer's profile decides tax (an exempt id means
+ * none), terms and the warnings a reviewer should look at.
+ */
+async function buildInvoices(q: Q, byPayer: Map<number, PlannedLine[]>): Promise<PlannedInvoice[]> {
+  const billTos = [...byPayer.keys()];
+  const { rows: profiles } = await q.query<{
+    id: string;
+    name: string;
+    tax_code_id: string | null;
+    tax_code: string | null;
+    rate_pct: string | null;
+    tax_exempt_id: string | null;
+    terms_id: string | null;
+    terms: string | null;
+    due_days: number | null;
+    has_qb: boolean;
+  }>(
+    `SELECT c.id, c.name, c.tax_code_id, tc.name AS tax_code, tc.rate_pct, c.tax_exempt_id,
+            c.billing_terms_id AS terms_id, bt.name AS terms, bt.due_days,
+            c.qb_customer_list_id IS NOT NULL AS has_qb
+       FROM crm.company c
+       LEFT JOIN catalog.tax_code tc ON tc.id = c.tax_code_id
+       LEFT JOIN catalog.billing_terms bt ON bt.id = c.billing_terms_id
+      WHERE c.id = ANY($1::bigint[])`,
+    [billTos],
+  );
+  const profile = new Map(profiles.map((p) => [Number(p.id), p]));
+  const invoices: PlannedInvoice[] = [];
+  for (const [companyId, lines] of byPayer) {
+    const p = profile.get(companyId);
+    if (!p) continue;
+    const exempt = p.tax_exempt_id !== null && p.tax_exempt_id.trim() !== "";
+    const rate = p.rate_pct ?? "0";
+    const totals = invoiceTotals(lines, rate, exempt);
+    const warnings: string[] = [];
+    if (p.tax_code_id === null && !exempt)
+      warnings.push("The company has no tax code, so no tax is charged");
+    if (p.terms_id === null)
+      warnings.push("The company has no billing terms, so the invoice is due on receipt");
+    if (!p.has_qb) warnings.push("The company is not linked to a QuickBooks customer");
+    invoices.push({
+      companyId,
+      company: p.name,
+      lines,
+      taxCodeId: p.tax_code_id === null ? null : Number(p.tax_code_id),
+      taxCode: p.tax_code,
+      taxRatePct: rate,
+      taxExempt: exempt,
+      termsId: p.terms_id === null ? null : Number(p.terms_id),
+      terms: p.terms,
+      dueDays: p.due_days,
+      warnings,
+      totals,
+    });
+  }
+  invoices.sort((x, y) => x.company.localeCompare(y.company));
+  return invoices;
+}
+
+/**
  * Works out what a run for a month would bill, without writing anything: which agreements are due
  * (a cycle starts in the month), which lines are in effect, what has already been billed (so a re-run
  * cannot double-bill), and the invoices grouped by who pays.
  */
-async function planRun(
+async function planAgreementRun(
   q: Q,
   month: string,
-): Promise<{ invoices: PlannedInvoice[]; skipped: SkippedAgreement[] }> {
+): Promise<{ invoices: PlannedInvoice[]; skipped: SkippedItem[] }> {
   const monthEnd = `${addDaysIso(`${month}-01`, 40).slice(0, 8)}01`;
   const { rows: agreements } = await q.query<{
     id: string;
@@ -224,9 +294,15 @@ async function planRun(
     [monthEnd],
   );
 
-  const skipped: SkippedAgreement[] = [];
+  const skipped: SkippedItem[] = [];
   const skip = (a: (typeof agreements)[number], reason: string) =>
-    skipped.push({ agreementId: Number(a.id), agreement: a.name, company: a.company, reason });
+    skipped.push({
+      kind: "agreement",
+      id: Number(a.id),
+      label: a.name,
+      company: a.company,
+      reason,
+    });
   const due: Array<{ a: (typeof agreements)[number]; period: { start: string; end: string } }> = [];
   for (const a of agreements) {
     const period = periodStartingIn(a.bill_start_date, a.bill_cycle, month);
@@ -276,31 +352,6 @@ async function planRun(
   );
   const billedKey = new Set(already.map((r) => `${r.agreement_addition_id}|${r.period_start}`));
 
-  // Who pays: the bill-to company's profile decides tax and terms.
-  const billTos = [...new Set(due.map((d) => Number(d.a.bill_to_company_id)))];
-  const { rows: profiles } = await q.query<{
-    id: string;
-    name: string;
-    tax_code_id: string | null;
-    tax_code: string | null;
-    rate_pct: string | null;
-    tax_exempt_id: string | null;
-    terms_id: string | null;
-    terms: string | null;
-    due_days: number | null;
-    has_qb: boolean;
-  }>(
-    `SELECT c.id, c.name, c.tax_code_id, tc.name AS tax_code, tc.rate_pct, c.tax_exempt_id,
-            c.billing_terms_id AS terms_id, bt.name AS terms, bt.due_days,
-            c.qb_customer_list_id IS NOT NULL AS has_qb
-       FROM crm.company c
-       LEFT JOIN catalog.tax_code tc ON tc.id = c.tax_code_id
-       LEFT JOIN catalog.billing_terms bt ON bt.id = c.billing_terms_id
-      WHERE c.id = ANY($1::bigint[])`,
-    [billTos],
-  );
-  const profile = new Map(profiles.map((p) => [Number(p.id), p]));
-
   const byPayer = new Map<number, PlannedLine[]>();
   for (const { a, period } of due) {
     const mine = additions
@@ -330,8 +381,12 @@ async function planRun(
     const lines = built.map<PlannedLine>((l) => {
       const src = additions.find((x) => Number(x.id) === l.additionId);
       return {
+        kind: "agreement",
         agreementId: Number(a.id),
         additionId: l.additionId,
+        ticketId: null,
+        ticketFee: false,
+        entryIds: [],
         productId: src?.product_id ? Number(src.product_id) : null,
         description: `${a.name} — ${l.description}${l.prorated ? " (prorated)" : ""}`,
         periodStart: period.start,
@@ -348,36 +403,134 @@ async function planRun(
     byPayer.set(payer, [...(byPayer.get(payer) ?? []), ...lines]);
   }
 
-  const invoices: PlannedInvoice[] = [];
-  for (const [companyId, lines] of byPayer) {
-    const p = profile.get(companyId);
-    if (!p) continue;
-    const exempt = p.tax_exempt_id !== null && p.tax_exempt_id.trim() !== "";
-    const rate = p.rate_pct ?? "0";
-    const totals = invoiceTotals(lines, rate, exempt);
-    const warnings: string[] = [];
-    if (p.tax_code_id === null && !exempt)
-      warnings.push("The company has no tax code, so no tax is charged");
-    if (p.terms_id === null)
-      warnings.push("The company has no billing terms, so the invoice is due on receipt");
-    if (!p.has_qb) warnings.push("The company is not linked to a QuickBooks customer");
-    invoices.push({
-      companyId,
-      company: p.name,
-      lines,
-      taxCodeId: p.tax_code_id === null ? null : Number(p.tax_code_id),
-      taxCode: p.tax_code,
-      taxRatePct: rate,
-      taxExempt: exempt,
-      termsId: p.terms_id === null ? null : Number(p.terms_id),
-      terms: p.terms,
-      dueDays: p.due_days,
-      warnings,
-      totals,
+  return { invoices: await buildInvoices(q, byPayer), skipped };
+}
+
+/**
+ * Works out what a ticket run would bill: approved, unbilled service-ticket time worked through the date
+ * (a fixed-fee ticket takes all its approved time, so none is left behind), by each ticket's billing
+ * method, grouped by who pays. Nothing is written.
+ */
+async function planTicketRun(
+  q: Q,
+  through: string,
+): Promise<{ invoices: PlannedInvoice[]; skipped: SkippedItem[] }> {
+  const { rows: entries } = await q.query<{
+    id: string;
+    ticket_id: string;
+    work_date: string;
+    actual_hours: string;
+    billed_hours: string;
+    bill_rate: string;
+    cost_rate: string;
+    billable: boolean;
+  }>(
+    `SELECT e.id, e.ticket_id, to_char(e.work_date, 'YYYY-MM-DD') AS work_date, e.actual_hours,
+            e.billed_hours, e.bill_rate, e.cost_rate, (e.billable = 'billable') AS billable
+       FROM timekeeping.time_entry e JOIN service.ticket t ON t.id = e.ticket_id
+      WHERE e.status = 'approved' AND e.invoice_id IS NULL AND e.charge_type = 'service_ticket'
+        AND (e.work_date <= $1::date OR t.billing_method = 'fixed_fee')
+      ORDER BY e.ticket_id, e.work_date, e.id`,
+    [through],
+  );
+  if (entries.length === 0) return { invoices: [], skipped: [] };
+  const ticketIds = [...new Set(entries.map((e) => Number(e.ticket_id)))];
+  const { rows: tickets } = await q.query<{
+    id: string;
+    summary: string;
+    billing_method: "actual_rates" | "fixed_fee" | "not_to_exceed" | "override_rate";
+    billing_amount: string | null;
+    is_closed: boolean;
+    company: string;
+    payer: string;
+    fee_billed: boolean;
+    billed_so_far: string;
+    unapproved: string;
+  }>(
+    `SELECT t.id, t.summary, t.billing_method, t.billing_amount, bs.is_closed, c.name AS company,
+            COALESCE(c.bill_to_company_id, c.id) AS payer,
+            EXISTS (SELECT 1 FROM billing.invoice_line l
+                     WHERE l.ticket_id = t.id AND l.ticket_fee AND NOT l.is_void) AS fee_billed,
+            COALESCE((SELECT sum(l.amount) FROM billing.invoice_line l
+                       WHERE l.ticket_id = t.id AND l.kind = 'time' AND NOT l.is_void), 0) AS billed_so_far,
+            (SELECT count(*) FROM timekeeping.time_entry e
+              WHERE e.ticket_id = t.id AND e.status IN ('open', 'submitted')) AS unapproved
+       FROM service.ticket t
+       JOIN service.board_status bs ON bs.id = t.status_id
+       JOIN crm.company c ON c.id = t.company_id
+      WHERE t.id = ANY($1::bigint[])
+      ORDER BY c.name, t.id`,
+    [ticketIds],
+  );
+  const skipped: SkippedItem[] = [];
+  const byPayer = new Map<number, PlannedLine[]>();
+  const usd = (n: string | number) => dec(n).toFixed(2);
+  for (const t of tickets) {
+    const mine = entries
+      .filter((e) => e.ticket_id === t.id)
+      .map((e) => ({
+        id: Number(e.id),
+        workDate: e.work_date,
+        actualHours: e.actual_hours,
+        billedHours: e.billed_hours,
+        billRate: e.bill_rate,
+        costRate: e.cost_rate,
+        billable: e.billable,
+      }));
+    const label = `#${t.id} ${t.summary}`;
+    const result = ticketInvoiceLines(
+      {
+        method: t.billing_method,
+        amount: t.billing_amount,
+        closed: t.is_closed,
+        feeBilled: t.fee_billed,
+        billedSoFar: t.billed_so_far,
+        unapprovedEntries: Number(t.unapproved),
+      },
+      mine,
+    );
+    if (result.skip !== null || result.lines.length === 0) {
+      skipped.push({
+        kind: "ticket",
+        id: Number(t.id),
+        label,
+        company: t.company,
+        reason: result.skip ?? "Nothing to bill",
+      });
+      continue;
+    }
+    const lines = result.lines.map<PlannedLine>((l) => {
+      const qty = dec(l.quantity);
+      const what =
+        l.kind === "fixed_fee"
+          ? "fixed fee"
+          : l.kind === "capped"
+            ? `labor (not to exceed $${usd(t.billing_amount ?? 0)}; ${l.hours} h logged)`
+            : "labor";
+      return {
+        kind: "time",
+        agreementId: null,
+        additionId: null,
+        ticketId: Number(t.id),
+        ticketFee: l.kind === "fixed_fee",
+        entryIds: l.entryIds,
+        productId: null,
+        description: `${label} — ${what}`,
+        periodStart: l.periodStart,
+        periodEnd: l.periodEnd,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        unitCost: qty.gt(0) ? dec(l.costAmount).div(qty).toFixed(4) : "0.0000",
+        amount: l.amount,
+        costAmount: l.costAmount,
+        // Labor is not taxed by default; the reviewer can mark a line taxable on the draft.
+        taxable: false,
+      };
     });
+    const payer = Number(t.payer);
+    byPayer.set(payer, [...(byPayer.get(payer) ?? []), ...lines]);
   }
-  invoices.sort((x, y) => x.company.localeCompare(y.company));
-  return { invoices, skipped };
+  return { invoices: await buildInvoices(q, byPayer), skipped };
 }
 
 const plannedToInvoice = (p: PlannedInvoice, invoiceDate: string): Invoice => ({
@@ -407,9 +560,10 @@ const plannedToInvoice = (p: PlannedInvoice, invoiceDate: string): Invoice => ({
   lines: p.lines.map((l, i) => ({
     id: 0,
     lineNo: i + 1,
-    kind: "agreement",
+    kind: l.kind,
     agreementId: l.agreementId,
     agreement: null,
+    ticketId: l.ticketId,
     description: l.description,
     periodStart: l.periodStart,
     periodEnd: l.periodEnd,
@@ -456,14 +610,53 @@ async function draftInvoice(client: pg.PoolClient, id: number) {
   return row;
 }
 
+/** Runs a step with the audited override on: time in a locked pay period is otherwise immutable. */
+async function withOverride<T>(client: pg.PoolClient, fn: () => Promise<T>): Promise<T> {
+  await client.query("SELECT set_config('app.allow_locked_edit', 'on', true)");
+  try {
+    return await fn();
+  } finally {
+    await client.query("SELECT set_config('app.allow_locked_edit', 'off', true)");
+  }
+}
+
+/**
+ * Lets go of time that was on draft or voided invoices so it can be billed again (billed time goes back to
+ * approved). The scope is one invoice, one line, or every draft invoice of a run.
+ */
+async function releaseEntries(
+  client: pg.PoolClient,
+  scope: { invoiceId: number } | { lineId: number } | { runDrafts: number },
+): Promise<void> {
+  const [where, id] =
+    "invoiceId" in scope
+      ? ["invoice_id = $1", scope.invoiceId]
+      : "lineId" in scope
+        ? ["invoice_line_id = $1", scope.lineId]
+        : [
+            "invoice_id IN (SELECT id FROM billing.invoice WHERE run_id = $1 AND status = 'draft')",
+            scope.runDrafts,
+          ];
+  await withOverride(client, () =>
+    client.query(
+      `UPDATE timekeeping.time_entry
+          SET invoice_id = NULL, invoice_line_id = NULL,
+              status = CASE WHEN status = 'billed' THEN 'approved' ELSE status END
+        WHERE ${where}`,
+      [id],
+    ),
+  );
+}
+
 // ---- Routes ----
 
 export const billingRoutes: FastifyPluginAsync = async (app) => {
   async function runSummary(q: Q, id?: number): Promise<BillingRun[]> {
     const { rows } = await q.query<{
       id: string;
-      kind: "agreement";
+      kind: BillingRun["kind"];
       period_month: string;
+      through_date: string | null;
       invoice_date: string;
       status: BillingRun["status"];
       notes: string | null;
@@ -473,6 +666,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       total: string;
     }>(
       `SELECT r.id, r.kind, to_char(r.period_month, 'YYYY-MM') AS period_month,
+              to_char(r.through_date, 'YYYY-MM-DD') AS through_date,
               to_char(r.invoice_date, 'YYYY-MM-DD') AS invoice_date, r.status, r.notes, r.created_at, r.posted_at,
               (SELECT count(*) FROM billing.invoice i WHERE i.run_id = r.id) AS invoice_count,
               COALESCE((SELECT sum(total) FROM billing.invoice i WHERE i.run_id = r.id AND i.status <> 'void'), 0) AS total
@@ -485,6 +679,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       id: Number(r.id),
       kind: r.kind,
       periodMonth: r.period_month,
+      throughDate: r.through_date,
       invoiceDate: r.invoice_date,
       status: r.status,
       notes: r.notes,
@@ -514,10 +709,18 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.post("/runs", { config: { perm: "billing.invoice.write" } }, async (req, reply) => {
     const body = billingRunCreateSchema.parse(req.body);
     const invoiceDate = body.invoiceDate ?? today();
+    const month =
+      body.kind === "ticket" ? (body.throughDate as string).slice(0, 7) : (body.month as string);
+    const planFor = (q: Q) =>
+      body.kind === "ticket"
+        ? planTicketRun(q, body.throughDate as string)
+        : planAgreementRun(q, month);
     if (body.preview) {
-      const plan = await planRun(app.pool, body.month);
+      const plan = await planFor(app.pool);
       const preview: BillingRunPreview = {
-        periodMonth: body.month,
+        kind: body.kind,
+        periodMonth: month,
+        throughDate: body.throughDate ?? null,
         invoiceDate,
         invoices: plan.invoices.map((p) => plannedToInvoice(p, invoiceDate)),
         skipped: plan.skipped,
@@ -527,20 +730,30 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
     }
     const runId = await withActor(app.pool, req.memberId as number, async (client) => {
       // Plan inside the transaction so the already-billed check and the inserts see the same state.
-      const plan = await planRun(client, body.month);
+      const plan = await planFor(client);
       if (plan.invoices.length === 0) {
         throw new HttpError(
           422,
           "Nothing to bill",
-          plan.skipped.length > 0
-            ? `No agreement has anything left to bill for ${body.month} (${plan.skipped.length} skipped)`
-            : `No agreement's cycle starts in ${body.month}`,
+          body.kind === "ticket"
+            ? `No approved, unbilled ticket time to bill through ${body.throughDate}${plan.skipped.length > 0 ? ` (${plan.skipped.length} tickets skipped)` : ""}`
+            : plan.skipped.length > 0
+              ? `No agreement has anything left to bill for ${month} (${plan.skipped.length} skipped)`
+              : `No agreement's cycle starts in ${month}`,
         );
       }
       const run = await client.query<{ id: string }>(
-        `INSERT INTO billing.billing_run (kind, period_month, invoice_date, notes, created_by_member_id)
-         VALUES ('agreement', $1::date, $2, $3, $4) RETURNING id`,
-        [`${body.month}-01`, invoiceDate, body.notes ?? null, req.memberId],
+        `INSERT INTO billing.billing_run
+           (kind, period_month, through_date, invoice_date, notes, created_by_member_id)
+         VALUES ($1, $2::date, $3, $4, $5, $6) RETURNING id`,
+        [
+          body.kind,
+          `${month}-01`,
+          body.throughDate ?? null,
+          invoiceDate,
+          body.notes ?? null,
+          req.memberId,
+        ],
       );
       const rid = Number(run.rows[0]?.id);
       for (const p of plan.invoices) {
@@ -567,11 +780,11 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
         let n = 0;
         for (const l of p.lines) {
           n += 1;
-          await client.query(
+          const ins = await client.query<{ id: string }>(
             `INSERT INTO billing.invoice_line
                (invoice_id, line_no, kind, agreement_id, agreement_addition_id, product_id, period_start, period_end,
-                description, quantity, unit_price, unit_cost, amount, cost_amount, taxable)
-             VALUES ($1,$2,'agreement',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                description, quantity, unit_price, unit_cost, amount, cost_amount, taxable, ticket_id, ticket_fee)
+             VALUES ($1,$2,$15,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$16,$17) RETURNING id`,
             [
               invoiceId,
               n,
@@ -587,8 +800,27 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
               l.amount,
               l.costAmount,
               l.taxable,
+              l.kind,
+              l.ticketId,
+              l.ticketFee,
             ],
           );
+          // Time goes onto the draft line now, so a second run cannot bill it again.
+          if (l.entryIds.length > 0) {
+            await withOverride(client, async () => {
+              const link = await client.query(
+                `UPDATE timekeeping.time_entry SET invoice_id = $1, invoice_line_id = $2
+                  WHERE id = ANY($3::bigint[]) AND status = 'approved' AND invoice_id IS NULL`,
+                [invoiceId, ins.rows[0]?.id, l.entryIds],
+              );
+              if (link.rowCount !== l.entryIds.length)
+                throw new HttpError(
+                  409,
+                  "Time changed",
+                  "Some time was billed by someone else; try again",
+                );
+            });
+          }
         }
       }
       return rid;
@@ -608,6 +840,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       if (!r.rows[0]) throw new HttpError(404, "Not Found", `Billing run ${id} not found`);
       if (r.rows[0].status !== "draft")
         throw new HttpError(409, "Not a draft", "Only a draft run can be discarded");
+      await releaseEntries(client, { runDrafts: id });
       await client.query("DELETE FROM billing.invoice WHERE run_id = $1 AND status = 'draft'", [
         id,
       ]);
@@ -664,6 +897,14 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
           [d.id, req.memberId],
         );
       }
+      // The time on these invoices is now billed and frozen.
+      await withOverride(client, () =>
+        client.query(
+          `UPDATE timekeeping.time_entry SET status = 'billed'
+            WHERE invoice_id IN (SELECT id FROM billing.invoice WHERE run_id = $1)`,
+          [id],
+        ),
+      );
       await client.query(
         "UPDATE billing.billing_run SET status = 'posted', posted_at = now(), posted_by_member_id = $2 WHERE id = $1",
         [id, req.memberId],
@@ -757,6 +998,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     await withActor(app.pool, req.memberId as number, async (client) => {
       await draftInvoice(client, id);
+      await releaseEntries(client, { invoiceId: id });
       await client.query("DELETE FROM billing.invoice WHERE id = $1", [id]);
     });
     return reply.status(204).send();
@@ -813,6 +1055,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       const p = z.object({ id: idSchema, lineId: idSchema }).parse(req.params);
       return withActor(app.pool, req.memberId as number, async (client) => {
         await draftInvoice(client, p.id);
+        await releaseEntries(client, { lineId: p.lineId });
         const del = await client.query(
           "DELETE FROM billing.invoice_line WHERE id = $1 AND invoice_id = $2",
           [p.lineId, p.id],
@@ -847,11 +1090,11 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
           "This invoice has payments; reverse them before voiding",
         );
       // The one audited override: line flags on a posted invoice, so its periods can be billed again.
-      await client.query("SELECT set_config('app.allow_locked_edit', 'on', true)");
-      await client.query("UPDATE billing.invoice_line SET is_void = true WHERE invoice_id = $1", [
-        id,
-      ]);
-      await client.query("SELECT set_config('app.allow_locked_edit', 'off', true)");
+      await withOverride(client, () =>
+        client.query("UPDATE billing.invoice_line SET is_void = true WHERE invoice_id = $1", [id]),
+      );
+      // Time on the invoice goes back to approved, ready to be billed again.
+      await releaseEntries(client, { invoiceId: id });
       await client.query(
         `UPDATE billing.invoice
             SET status = 'void', voided_at = now(), voided_by_member_id = $2, void_reason = $3

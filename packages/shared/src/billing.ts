@@ -1,5 +1,5 @@
 import { type BillCycle, CYCLE_MONTHS, addDaysIso, additionAmountForPeriod } from "./agreements.js";
-import { dec, taxOn, toCents } from "./money.js";
+import { dec, lineTotal, taxOn, toCents } from "./money.js";
 import type { IsoDate } from "./time.js";
 
 /**
@@ -142,3 +142,166 @@ export function invoiceTotals(
 /** Due date from the invoice date and the customer's terms; due on receipt without terms. */
 export const dueDate = (invoiceDate: IsoDate, dueDays: number | null): IsoDate =>
   addDaysIso(invoiceDate, dueDays ?? 0);
+
+// ---- Ticket time (docs/05 "Invoicing other work") ----
+
+export type TicketBillingMethod = "actual_rates" | "fixed_fee" | "not_to_exceed" | "override_rate";
+
+export interface TicketBillingInput {
+  method: TicketBillingMethod;
+  /** Fixed fee, the not-to-exceed cap, or the override hourly rate; null when none was set. */
+  amount: string | number | null;
+  closed: boolean;
+  /** A fixed-fee line is already on a non-void invoice. */
+  feeBilled: boolean;
+  /** Already billed on earlier invoices for this ticket (counts against a not-to-exceed cap). */
+  billedSoFar: string | number;
+  /** Time still open or submitted: a fixed fee waits until everything is approved. */
+  unapprovedEntries: number;
+}
+
+export interface TimeBillingEntry {
+  id: number;
+  workDate: IsoDate;
+  actualHours: string | number;
+  /** Hours after the billing rounding rule. */
+  billedHours: string | number;
+  billRate: string | number;
+  costRate: string | number;
+  /** False for no-charge and do-not-bill time: never billed hourly, but its cost still counts. */
+  billable: boolean;
+}
+
+export interface TicketBillingLine {
+  kind: "hourly" | "capped" | "fixed_fee";
+  quantity: string;
+  unitPrice: string;
+  amount: string;
+  costAmount: string;
+  periodStart: IsoDate;
+  periodEnd: IsoDate;
+  /** Every entry this line accounts for; they are marked billed together. */
+  entryIds: number[];
+  /** Hours worth showing next to a capped or fixed line. */
+  hours: string;
+}
+
+export interface TicketBillingResult {
+  lines: TicketBillingLine[];
+  skip: string | null;
+}
+
+const costOf = (es: TimeBillingEntry[]) =>
+  toCents(es.reduce((s, e) => s.plus(dec(e.costRate).mul(dec(e.actualHours))), dec(0))).toFixed(2);
+const span = (es: TimeBillingEntry[]) => {
+  const days = es.map((e) => e.workDate).sort();
+  return { start: days[0] ?? "", end: days[days.length - 1] ?? "" };
+};
+const hoursOf = (es: TimeBillingEntry[]) => es.reduce((s, e) => s.plus(dec(e.billedHours)), dec(0));
+
+/**
+ * What one ticket's approved, unbilled time bills, by the ticket's billing method:
+ *  - actual_rates: billed hours x the rate snapshotted on each entry, one line per rate.
+ *  - override_rate: billed hours x the ticket's override rate, one line.
+ *  - not_to_exceed: as actual_rates, capped at the cap less what earlier invoices already billed; the
+ *    hours over the cap are written off, not carried forward.
+ *  - fixed_fee: one line for the fee once the ticket is closed and all its time is approved. Time is kept
+ *    for cost, never billed.
+ * Rates come from the entries (snapshots), never the current rate card.
+ */
+export function ticketInvoiceLines(
+  t: TicketBillingInput,
+  entries: TimeBillingEntry[],
+): TicketBillingResult {
+  const none = (skip: string): TicketBillingResult => ({ lines: [], skip });
+  const billable = entries.filter((e) => e.billable && dec(e.billedHours).gt(0));
+  const needsAmount = t.method !== "actual_rates";
+  if (needsAmount && (t.amount === null || dec(t.amount).lte(0)))
+    return none("The ticket's billing method needs an amount");
+
+  if (t.method === "fixed_fee") {
+    if (t.feeBilled) return none("Fixed fee already billed");
+    if (!t.closed) return none("Fixed-fee ticket is not closed");
+    if (t.unapprovedEntries > 0) return none("Fixed-fee ticket has time that is not approved yet");
+    const { start, end } = span(entries);
+    const day = entries.length > 0 ? { start, end } : null;
+    return {
+      skip: null,
+      lines: [
+        {
+          kind: "fixed_fee",
+          quantity: "1",
+          unitPrice: toCents(t.amount as string).toFixed(4),
+          amount: toCents(t.amount as string).toFixed(2),
+          costAmount: costOf(entries),
+          periodStart: day?.start ?? "",
+          periodEnd: day?.end ?? "",
+          entryIds: entries.map((e) => e.id),
+          hours: hoursOf(entries.filter((e) => dec(e.billedHours).gt(0))).toString(),
+        },
+      ],
+    };
+  }
+
+  if (billable.length === 0) return none("No approved billable time");
+
+  if (t.method === "override_rate" || t.method === "actual_rates") {
+    const groups = new Map<string, TimeBillingEntry[]>();
+    for (const e of billable) {
+      const rate =
+        t.method === "override_rate"
+          ? toCents(t.amount as string).toFixed(2)
+          : toCents(e.billRate).toFixed(2);
+      groups.set(rate, [...(groups.get(rate) ?? []), e]);
+    }
+    const lines = [...groups.entries()]
+      .sort((a, b) => Number(a[0]) - Number(b[0]))
+      .map<TicketBillingLine>(([rate, es]) => {
+        const qty = hoursOf(es);
+        const { start, end } = span(es);
+        return {
+          kind: "hourly",
+          quantity: qty.toString(),
+          unitPrice: dec(rate).toFixed(4),
+          amount: lineTotal(qty, rate).toFixed(2),
+          costAmount: costOf(es),
+          periodStart: start,
+          periodEnd: end,
+          entryIds: es.map((e) => e.id),
+          hours: qty.toString(),
+        };
+      });
+    return { lines, skip: null };
+  }
+
+  // not_to_exceed
+  const groups = new Map<string, TimeBillingEntry[]>();
+  for (const e of billable) {
+    const rate = toCents(e.billRate).toFixed(2);
+    groups.set(rate, [...(groups.get(rate) ?? []), e]);
+  }
+  const worth = [...groups.entries()].reduce(
+    (s, [rate, es]) => s.plus(lineTotal(hoursOf(es), rate)),
+    dec(0),
+  );
+  const remaining = dec(t.amount as string).minus(dec(t.billedSoFar));
+  if (remaining.lte(0)) return none("Not-to-exceed amount already billed");
+  const bill = worth.lessThan(remaining) ? worth : remaining;
+  const { start, end } = span(billable);
+  return {
+    skip: null,
+    lines: [
+      {
+        kind: "capped",
+        quantity: "1",
+        unitPrice: toCents(bill).toFixed(4),
+        amount: toCents(bill).toFixed(2),
+        costAmount: costOf(billable),
+        periodStart: start,
+        periodEnd: end,
+        entryIds: billable.map((e) => e.id),
+        hours: hoursOf(billable).toString(),
+      },
+    ],
+  };
+}

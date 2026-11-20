@@ -1,6 +1,7 @@
 import type { BillingRun, BillingRunPreview, Invoice, InvoiceLine } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
 import {
+  type RunTarget,
   createBillingRun,
   deleteInvoice,
   deleteInvoiceLine,
@@ -45,6 +46,12 @@ const Badge = ({ status }: { status: string }) => (
   </span>
 );
 const number = (i: Invoice) => (i.invoiceNumber === null ? "—" : `#${i.invoiceNumber}`);
+/** What a run covers, for lists and headings. */
+const runLabel = (r: { kind: string; periodMonth: string; throughDate: string | null }) =>
+  r.kind === "ticket" && r.throughDate
+    ? `Ticket time through ${shortDate(r.throughDate)}`
+    : monthLabel(r.periodMonth);
+
 const monthLabel = (m: string) =>
   new Date(`${m}-01T00:00:00Z`).toLocaleDateString("en-US", {
     month: "long",
@@ -137,7 +144,7 @@ function RunsTab({ can }: { can: (key: string) => boolean }) {
           <table>
             <thead>
               <tr>
-                <th>Month</th>
+                <th>Run</th>
                 <th>Invoice date</th>
                 <th>Status</th>
                 <th className="num">Invoices</th>
@@ -149,7 +156,7 @@ function RunsTab({ can }: { can: (key: string) => boolean }) {
                 <tr key={r.id} className={r.id === selected ? "selected" : undefined}>
                   <td>
                     <button type="button" className="link" onClick={() => setSelected(r.id)}>
-                      {monthLabel(r.periodMonth)}
+                      {runLabel(r)}
                     </button>
                   </td>
                   <td>{shortDate(r.invoiceDate)}</td>
@@ -234,7 +241,7 @@ function RunPanel(props: {
     <aside className="card card-pad detail wide-detail" aria-label={`Run ${run.periodMonth}`}>
       <div className="detail-head">
         <div>
-          <h3>{monthLabel(run.periodMonth)}</h3>
+          <h3>{runLabel(run)}</h3>
           <div className="muted">
             Invoice date {shortDate(run.invoiceDate)} · <Badge status={run.status} />
           </div>
@@ -323,7 +330,10 @@ function RunPanel(props: {
 }
 
 function NewRunDialog(props: { onClose: () => void; onCreated: (r: BillingRun) => void }) {
+  const [kind, setKind] = useState<"agreement" | "ticket">("agreement");
   const [month, setMonth] = useState(todayIso().slice(0, 7));
+  const [throughDate, setThroughDate] = useState(todayIso());
+  const target: RunTarget = kind === "ticket" ? { kind, throughDate } : { kind, month };
   const [invoiceDate, setInvoiceDate] = useState(todayIso());
   const [preview, setPreview] = useState<BillingRunPreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -347,17 +357,46 @@ function NewRunDialog(props: { onClose: () => void; onCreated: (r: BillingRun) =
       {error && <div className="state error">{error}</div>}
       <div className="field-row">
         <label>
-          Month to bill
-          <input
+          Bill
+          <select
             className="input"
-            type="month"
-            value={month}
+            value={kind}
             onChange={(e) => {
-              setMonth(e.target.value);
+              setKind(e.target.value as "agreement" | "ticket");
               setPreview(null);
             }}
-          />
+          >
+            <option value="agreement">Agreements, by month</option>
+            <option value="ticket">Ticket time, through a date</option>
+          </select>
         </label>
+        {kind === "agreement" ? (
+          <label>
+            Month to bill
+            <input
+              className="input"
+              type="month"
+              value={month}
+              onChange={(e) => {
+                setMonth(e.target.value);
+                setPreview(null);
+              }}
+            />
+          </label>
+        ) : (
+          <label>
+            Time through
+            <input
+              className="input"
+              type="date"
+              value={throughDate}
+              onChange={(e) => {
+                setThroughDate(e.target.value);
+                setPreview(null);
+              }}
+            />
+          </label>
+        )}
         <label>
           Invoice date
           <input
@@ -373,8 +412,8 @@ function NewRunDialog(props: { onClose: () => void; onCreated: (r: BillingRun) =
         <button
           type="button"
           className="btn"
-          disabled={busy || !month || !invoiceDate}
-          onClick={() => run(async () => setPreview(await previewBillingRun(month, invoiceDate)))}
+          disabled={busy || !(kind === "agreement" ? month : throughDate) || !invoiceDate}
+          onClick={() => run(async () => setPreview(await previewBillingRun(target, invoiceDate)))}
         >
           Preview
         </button>
@@ -384,7 +423,9 @@ function NewRunDialog(props: { onClose: () => void; onCreated: (r: BillingRun) =
           <p className="muted small">
             Nothing is saved yet. {preview.invoices.length} invoice
             {preview.invoices.length === 1 ? "" : "s"} totalling {usd(preview.total)}
-            {preview.skipped.length > 0 && `; ${preview.skipped.length} agreements skipped`}.
+            {preview.skipped.length > 0 &&
+              `; ${preview.skipped.length} ${kind === "ticket" ? "tickets" : "agreements"} skipped`}
+            .
           </p>
           {preview.invoices.length > 0 && (
             <table>
@@ -415,11 +456,13 @@ function NewRunDialog(props: { onClose: () => void; onCreated: (r: BillingRun) =
           )}
           {preview.skipped.length > 0 && (
             <details>
-              <summary className="muted small">Skipped agreements</summary>
+              <summary className="muted small">
+                Skipped {kind === "ticket" ? "tickets" : "agreements"}
+              </summary>
               <ul className="small">
                 {preview.skipped.map((s) => (
-                  <li key={s.agreementId}>
-                    {s.company} · {s.agreement}: {s.reason}
+                  <li key={`${s.kind}-${s.id}`}>
+                    {s.company} · {s.label}: {s.reason}
                   </li>
                 ))}
               </ul>
@@ -436,7 +479,7 @@ function NewRunDialog(props: { onClose: () => void; onCreated: (r: BillingRun) =
           className="btn primary"
           disabled={busy || !preview || preview.invoices.length === 0}
           onClick={() =>
-            run(async () => props.onCreated(await createBillingRun(month, invoiceDate)))
+            run(async () => props.onCreated(await createBillingRun(target, invoiceDate)))
           }
         >
           Create draft invoices
@@ -659,6 +702,12 @@ function InvoicePanel(props: {
             <tr key={l.id}>
               <td>
                 {l.description}
+                {l.ticketId && (
+                  <>
+                    {" "}
+                    <Link to={`/tickets/${l.ticketId}`}>Ticket #{l.ticketId}</Link>
+                  </>
+                )}
                 {l.periodStart && l.periodEnd && (
                   <div className="muted small">
                     {shortDate(l.periodStart)} – {shortDate(l.periodEnd)}

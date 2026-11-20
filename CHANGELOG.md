@@ -10,6 +10,11 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Ticket time invoicing. A billing run can now bill approved ticket time through a chosen date, one draft invoice per
+  bill-to company. Each ticket has a billing method (actual rates, override rate, not to exceed, fixed fee) set on the
+  ticket screen. Time is linked to its draft line so it cannot be billed twice, frozen when the run is posted, and
+  released when a line, invoice or run is thrown away or an invoice is voided. Migration 0014. Skipped tickets are
+  listed with the reason (fixed fee not closed, time not approved, cap used up, amount missing).
 - Billing runs and invoices for agreements (milestone 2). Migration 0013: billing runs, invoices, invoice lines, a
   gap-free invoice counter, a unique guard so a recurring line bills once per period, and database rules that freeze
   posted invoices. Pure rules in `@hoosier/shared` (billing periods by cycle, prorated lines, totals, due dates) with

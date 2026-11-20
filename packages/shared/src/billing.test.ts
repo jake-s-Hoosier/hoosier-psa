@@ -101,3 +101,104 @@ describe("dueDate", () => {
     expect(dueDate("2026-04-01", null)).toBe("2026-04-01");
   });
 });
+
+import { ticketInvoiceLines } from "./billing.js";
+
+describe("ticketInvoiceLines", () => {
+  const ticket = (over: object = {}) => ({
+    method: "actual_rates" as const,
+    amount: null,
+    closed: false,
+    feeBilled: false,
+    billedSoFar: 0,
+    unapprovedEntries: 0,
+    ...over,
+  });
+  const entry = (id: number, hours: number, rate: number, over: object = {}) => ({
+    id,
+    workDate: `2026-11-0${id}`,
+    actualHours: hours,
+    billedHours: hours,
+    billRate: rate,
+    costRate: 30,
+    billable: true,
+    ...over,
+  });
+
+  it("bills actual rates with one line per rate, from the entries' own snapshots", () => {
+    const r = ticketInvoiceLines(ticket(), [
+      entry(1, 1.5, 125),
+      entry(2, 2, 125),
+      entry(3, 1, 187.5),
+    ]);
+    expect(r.lines).toHaveLength(2);
+    expect(r.lines[0]).toMatchObject({
+      quantity: "3.5",
+      unitPrice: "125.0000",
+      amount: "437.50",
+      entryIds: [1, 2],
+      periodStart: "2026-11-01",
+      periodEnd: "2026-11-02",
+    });
+    expect(r.lines[1]).toMatchObject({ amount: "187.50", costAmount: "30.00" });
+    expect(r.lines[0]?.costAmount).toBe("105.00");
+  });
+  it("skips non-billable and zero-hour time, and says so when nothing is left", () => {
+    expect(
+      ticketInvoiceLines(ticket(), [
+        entry(1, 2, 100, { billable: false }),
+        entry(2, 0, 100, { billedHours: 0 }),
+      ]).skip,
+    ).toMatch(/No approved billable/);
+  });
+  it("bills an override rate for every hour", () => {
+    const r = ticketInvoiceLines(ticket({ method: "override_rate", amount: 90 }), [
+      entry(1, 2, 125),
+      entry(2, 1, 187.5),
+    ]);
+    expect(r.lines).toHaveLength(1);
+    expect(r.lines[0]).toMatchObject({ quantity: "3", unitPrice: "90.0000", amount: "270.00" });
+  });
+  it("caps not-to-exceed at what is left of the cap", () => {
+    const t = ticket({ method: "not_to_exceed", amount: 300 });
+    expect(ticketInvoiceLines(t, [entry(1, 1, 125)]).lines[0]).toMatchObject({
+      kind: "capped",
+      amount: "125.00",
+    });
+    expect(ticketInvoiceLines(t, [entry(1, 4, 125)]).lines[0]).toMatchObject({
+      amount: "300.00",
+      hours: "4",
+    });
+    expect(
+      ticketInvoiceLines({ ...t, billedSoFar: 250 }, [entry(1, 4, 125)]).lines[0],
+    ).toMatchObject({ amount: "50.00" });
+    expect(ticketInvoiceLines({ ...t, billedSoFar: 300 }, [entry(1, 1, 125)]).skip).toMatch(
+      /already billed/,
+    );
+  });
+  it("bills a fixed fee once, when the ticket is closed and all time is approved", () => {
+    const t = ticket({ method: "fixed_fee", amount: 500, closed: true });
+    const r = ticketInvoiceLines(t, [entry(1, 2, 125), entry(2, 1, 125, { billable: false })]);
+    expect(r.lines[0]).toMatchObject({
+      kind: "fixed_fee",
+      amount: "500.00",
+      entryIds: [1, 2],
+      costAmount: "90.00",
+    });
+    expect(ticketInvoiceLines({ ...t, closed: false }, [entry(1, 1, 1)]).skip).toMatch(
+      /not closed/,
+    );
+    expect(ticketInvoiceLines({ ...t, feeBilled: true }, [entry(1, 1, 1)]).skip).toMatch(
+      /already billed/,
+    );
+    expect(ticketInvoiceLines({ ...t, unapprovedEntries: 1 }, [entry(1, 1, 1)]).skip).toMatch(
+      /not approved/,
+    );
+  });
+  it("needs an amount for fixed, capped and override methods", () => {
+    for (const method of ["fixed_fee", "not_to_exceed", "override_rate"] as const)
+      expect(ticketInvoiceLines(ticket({ method }), [entry(1, 1, 100)]).skip).toMatch(
+        /needs an amount/,
+      );
+  });
+});

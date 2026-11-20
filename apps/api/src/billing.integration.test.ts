@@ -253,7 +253,11 @@ suite("billing runs and invoices (integration)", () => {
     expect(c.statusCode).toBe(200);
     const p = (await preview("2027-03")).json();
     expect(p.skipped).toContainEqual(
-      expect.objectContaining({ agreementId: a.id, reason: "Cancelled before this period" }),
+      expect.objectContaining({
+        kind: "agreement",
+        id: a.id,
+        reason: "Cancelled before this period",
+      }),
     );
   });
 

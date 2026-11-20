@@ -33,6 +33,8 @@ interface TicketRow {
   owner_member_id: string | null;
   agreement_id: string | null;
   agreement: string | null;
+  billing_method: Ticket["billingMethod"];
+  billing_amount: string | null;
   entered_at: Date;
   closed_at: Date | null;
   updated_at: Date;
@@ -43,7 +45,7 @@ const SELECT_TICKET = `
          NULLIF(trim(concat(ct.first_name, ' ', ct.last_name)), '') AS contact,
          t.board_id, b.name AS board, t.status_id, s.name AS status, s.is_closed,
          t.priority_id, p.name AS priority, t.owner_member_id,
-         t.agreement_id, ag.name AS agreement,
+         t.agreement_id, ag.name AS agreement, t.billing_method, t.billing_amount,
          t.entered_at, t.closed_at, t.updated_at
     FROM service.ticket t
     JOIN crm.company c ON c.id = t.company_id
@@ -76,6 +78,8 @@ function toTicket(r: TicketRow): Ticket {
     ownerMemberId: optId(r.owner_member_id),
     agreementId: optId(r.agreement_id),
     agreement: r.agreement,
+    billingMethod: r.billing_method,
+    billingAmount: r.billing_amount,
     enteredAt: r.entered_at.toISOString(),
     closedAt: r.closed_at?.toISOString() ?? null,
     updatedAt: r.updated_at.toISOString(),
@@ -281,6 +285,28 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
       } else if (body.companyId !== undefined && body.companyId !== Number(current.company_id)) {
         // Moving to another company drops an agreement that belonged to the old one.
         sets.push("agreement_id = NULL");
+      }
+      if (body.billingMethod !== undefined || body.billingAmount !== undefined) {
+        // A fixed fee, cap or override rate needs an amount; actual rates ignore it.
+        const cur = await client.query<{ billing_method: string; billing_amount: string | null }>(
+          "SELECT billing_method, billing_amount FROM service.ticket WHERE id = $1",
+          [id],
+        );
+        const method = body.billingMethod ?? cur.rows[0]?.billing_method;
+        const amount =
+          body.billingAmount !== undefined ? body.billingAmount : cur.rows[0]?.billing_amount;
+        if (
+          method !== "actual_rates" &&
+          (amount === null || amount === undefined || Number(amount) <= 0)
+        )
+          throw new HttpError(
+            422,
+            "Amount needed",
+            "Enter the fee, cap or rate for this billing method",
+          );
+        if (body.billingMethod !== undefined) set("billing_method", body.billingMethod);
+        if (body.billingAmount !== undefined || method === "actual_rates")
+          set("billing_amount", method === "actual_rates" ? null : amount);
       }
       if (body.statusId !== undefined && body.statusId !== Number(current.status_id)) {
         const target = await statusOnBoard(client, body.statusId, Number(current.board_id));

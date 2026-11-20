@@ -128,8 +128,26 @@ precomputable.
   reused. Voiding an invoice with payments is refused.
 - Until cutover the counter counts from 1 and posted invoices are test data. At cutover, seed the counter from the last
   ConnectWise invoice number and remove test invoices (a script to do this is part of the cutover checklist).
+
+### Ticket time billing as built
+- A **ticket run** bills approved, unbilled labor on service tickets worked **through a chosen date**, one draft
+  invoice per bill-to company (the customer's `bill_to_company_id`, else the customer). Only time with status
+  `approved`, billable and not already on an invoice is taken; submitted and no-charge time is left alone.
+- Each ticket carries a **billing method**: `actual_rates` (one line per ticket and bill rate), `override_rate` (all
+  hours at one hourly rate), `not_to_exceed` (hours at actual rates, capped at the amount less what was billed
+  already; the excess is written off, not carried), or `fixed_fee` (one line for the fee). A method other than actual
+  rates needs an amount. Set on the ticket detail screen.
+- A **fixed-fee** ticket bills once, when the ticket is closed and none of its time is still open or submitted; all
+  of its approved time is taken whatever the date. Otherwise it is listed as skipped with the reason.
+- Labor lines are **not taxable** by default (confirm with the accountant; the line's flag can be changed on the draft).
+- **No double billing.** Time is linked to its draft line when the run is created, so a second run cannot take it.
+  Posting marks the time `billed`, which freezes it. Deleting a draft line or invoice, discarding the run, or voiding
+  a posted invoice releases the time (billed time goes back to approved) so it bills again. Time in a locked pay
+  period can still be linked and released; this uses the same audited override as the invoice void.
+- The importer must mark historical ConnectWise time as billed so the first ticket run does not bill history.
+
 - Not yet built: payments (the `partially_paid` and `paid` states and `amount_paid` exist), PDFs, email delivery,
-  ticket-time, product and project invoices, credit memos, and the QuickBooks export.
+  product, expense and project invoices, credit memos, and the QuickBooks export.
 
 ## Open questions
 

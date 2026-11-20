@@ -228,6 +228,9 @@ export const ticketSchema = z.object({
   ownerMemberId: z.number().int().nullable(),
   agreementId: z.number().int().nullable(),
   agreement: z.string().nullable(),
+  /** How time on the ticket is billed; the amount is the fee, cap or override rate the method needs. */
+  billingMethod: z.enum(["actual_rates", "fixed_fee", "not_to_exceed", "override_rate"]),
+  billingAmount: z.string().nullable(),
   enteredAt: z.string(),
   closedAt: z.string().nullable(),
   updatedAt: z.string(),
@@ -274,6 +277,9 @@ export const ticketUpdateSchema = z
     contactId: idSchema.nullable(),
     /** The agreement that covers this work, or null to clear it. */
     agreementId: idSchema.nullable(),
+    billingMethod: z.enum(["actual_rates", "fixed_fee", "not_to_exceed", "override_rate"]),
+    /** The fixed fee, not-to-exceed cap or override hourly rate; null clears it. */
+    billingAmount: z.number().min(0).max(100_000_000).nullable(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
@@ -641,6 +647,7 @@ export interface InvoiceLine {
   kind: "agreement" | "time" | "product" | "expense" | "fee" | "adjustment";
   agreementId: number | null;
   agreement: string | null;
+  ticketId: number | null;
   description: string;
   periodStart: string | null;
   periodEnd: string | null;
@@ -681,8 +688,11 @@ export interface Invoice {
 
 export interface BillingRun {
   id: number;
-  kind: "agreement";
+  kind: "agreement" | "ticket";
+  /** For a ticket run, the month of throughDate. */
   periodMonth: string;
+  /** Ticket runs bill time worked up to and including this date. */
+  throughDate: string | null;
   invoiceDate: string;
   status: "draft" | "posted" | "discarded";
   notes: string | null;
@@ -693,31 +703,45 @@ export interface BillingRun {
   invoices?: Invoice[];
 }
 
-export interface SkippedAgreement {
-  agreementId: number;
-  agreement: string;
+export interface SkippedItem {
+  kind: "agreement" | "ticket";
+  id: number;
+  /** Agreement name, or "#12 Door stuck" for a ticket. */
+  label: string;
   company: string;
   reason: string;
 }
 
 export interface BillingRunPreview {
+  kind: "agreement" | "ticket";
   periodMonth: string;
+  throughDate: string | null;
   invoiceDate: string;
   invoices: Invoice[];
-  skipped: SkippedAgreement[];
+  skipped: SkippedItem[];
   total: string;
 }
 
 const billingMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Use YYYY-MM");
 
-export const billingRunCreateSchema = z.object({
-  /** Bills every agreement whose cycle starts in this month, in advance. */
-  month: billingMonth,
-  invoiceDate: isoDate.optional(),
-  notes: z.string().trim().max(2000).optional(),
-  /** Work out the invoices without saving anything. */
-  preview: z.boolean().optional(),
-});
+export const billingRunCreateSchema = z
+  .object({
+    /** Agreement runs bill every agreement whose cycle starts in this month, in advance. */
+    kind: z.enum(["agreement", "ticket"]).default("agreement"),
+    month: billingMonth.optional(),
+    /** Ticket runs bill approved time worked up to and including this date. */
+    throughDate: isoDate.optional(),
+    invoiceDate: isoDate.optional(),
+    notes: z.string().trim().max(2000).optional(),
+    /** Work out the invoices without saving anything. */
+    preview: z.boolean().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.kind === "agreement" && !v.month)
+      ctx.addIssue({ code: "custom", path: ["month"], message: "Choose the month to bill" });
+    if (v.kind === "ticket" && !v.throughDate)
+      ctx.addIssue({ code: "custom", path: ["throughDate"], message: "Choose the last day to bill" });
+  });
 export type BillingRunCreate = z.infer<typeof billingRunCreateSchema>;
 
 export const invoiceListQuerySchema = paginationSchema.extend({

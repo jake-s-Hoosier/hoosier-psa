@@ -268,6 +268,89 @@ export function TicketsPage({
 }
 
 /** Which agreement covers this ticket. Staff who cannot see agreements still see its name. */
+const METHOD_LABEL: Record<Ticket["billingMethod"], string> = {
+  actual_rates: "Actual rates",
+  fixed_fee: "Fixed fee",
+  not_to_exceed: "Not to exceed",
+  override_rate: "Override rate",
+};
+const AMOUNT_LABEL: Record<Ticket["billingMethod"], string> = {
+  actual_rates: "",
+  fixed_fee: "Fee",
+  not_to_exceed: "Cap",
+  override_rate: "Hourly rate",
+};
+
+/** How time on the ticket is billed. Only people who can edit tickets and see billing change it. */
+function BillingField(props: {
+  ticket: Ticket;
+  canEdit: boolean;
+  disabled: boolean;
+  onSave: (billingMethod: Ticket["billingMethod"], billingAmount: number | null) => void;
+}) {
+  const { ticket } = props;
+  const [method, setMethod] = useState(ticket.billingMethod);
+  const [amount, setAmount] = useState(ticket.billingAmount ?? "");
+  useEffect(() => {
+    setMethod(ticket.billingMethod);
+    setAmount(ticket.billingAmount ?? "");
+  }, [ticket.billingMethod, ticket.billingAmount]);
+  const changed =
+    method !== ticket.billingMethod ||
+    (method !== "actual_rates" && Number(amount) !== Number(ticket.billingAmount ?? 0));
+  const valid = method === "actual_rates" || Number(amount) > 0;
+  if (!props.canEdit)
+    return ticket.billingMethod === "actual_rates" ? null : (
+      <div className="muted">
+        Billed as {METHOD_LABEL[ticket.billingMethod].toLowerCase()}
+        {ticket.billingAmount ? ` · $${ticket.billingAmount}` : ""}
+      </div>
+    );
+  return (
+    <div className="field-row">
+      <label>
+        Billing
+        <select
+          className="input"
+          value={method}
+          disabled={props.disabled}
+          onChange={(e) => setMethod(e.target.value as Ticket["billingMethod"])}
+        >
+          {(Object.keys(METHOD_LABEL) as Array<Ticket["billingMethod"]>).map((m) => (
+            <option key={m} value={m}>
+              {METHOD_LABEL[m]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {method !== "actual_rates" && (
+        <label>
+          {AMOUNT_LABEL[method]}
+          <input
+            className="input"
+            type="number"
+            min="0"
+            step="any"
+            value={amount}
+            disabled={props.disabled}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </label>
+      )}
+      {changed && (
+        <button
+          type="button"
+          className="btn"
+          disabled={props.disabled || !valid}
+          onClick={() => props.onSave(method, method === "actual_rates" ? null : Number(amount))}
+        >
+          Save billing
+        </button>
+      )}
+    </div>
+  );
+}
+
 function AgreementField(props: {
   ticket: Ticket;
   canRead: boolean;
@@ -424,6 +507,16 @@ function TicketDetail(props: {
         </label>
       </div>
 
+      <BillingField
+        ticket={ticket}
+        canEdit={props.can("service.ticket.write")}
+        disabled={busy}
+        onSave={(billingMethod, billingAmount) =>
+          run(async () =>
+            props.onChanged(await updateTicket(ticket.id, { billingMethod, billingAmount })),
+          )
+        }
+      />
       <AgreementField
         ticket={ticket}
         canRead={props.can("billing.agreement.read")}
