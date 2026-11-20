@@ -629,3 +629,124 @@ export const additionEditSchema = z
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+
+// ---- Billing runs and invoices (docs/05) ----
+
+export const invoiceStatusEnum = z.enum(["draft", "posted", "partially_paid", "paid", "void"]);
+export type InvoiceStatus = z.infer<typeof invoiceStatusEnum>;
+
+export interface InvoiceLine {
+  id: number;
+  lineNo: number;
+  kind: "agreement" | "time" | "product" | "expense" | "fee" | "adjustment";
+  agreementId: number | null;
+  agreement: string | null;
+  description: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  quantity: string;
+  unitPrice: string;
+  amount: string;
+  costAmount: string;
+  taxable: boolean;
+}
+
+export interface Invoice {
+  id: number;
+  runId: number | null;
+  companyId: number;
+  company: string;
+  invoiceNumber: number | null;
+  status: InvoiceStatus;
+  invoiceDate: string;
+  dueDate: string;
+  terms: string | null;
+  poNumber: string | null;
+  notes: string | null;
+  taxCode: string | null;
+  taxRatePct: string;
+  taxExempt: boolean;
+  subtotal: string;
+  taxTotal: string;
+  total: string;
+  amountPaid: string;
+  postedAt: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  lineCount: number;
+  /** Things a reviewer should look at before posting a draft (no tax code, no terms ...). */
+  warnings: string[];
+  lines?: InvoiceLine[];
+}
+
+export interface BillingRun {
+  id: number;
+  kind: "agreement";
+  periodMonth: string;
+  invoiceDate: string;
+  status: "draft" | "posted" | "discarded";
+  notes: string | null;
+  createdAt: string;
+  postedAt: string | null;
+  invoiceCount: number;
+  total: string;
+  invoices?: Invoice[];
+}
+
+export interface SkippedAgreement {
+  agreementId: number;
+  agreement: string;
+  company: string;
+  reason: string;
+}
+
+export interface BillingRunPreview {
+  periodMonth: string;
+  invoiceDate: string;
+  invoices: Invoice[];
+  skipped: SkippedAgreement[];
+  total: string;
+}
+
+const billingMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Use YYYY-MM");
+
+export const billingRunCreateSchema = z.object({
+  /** Bills every agreement whose cycle starts in this month, in advance. */
+  month: billingMonth,
+  invoiceDate: isoDate.optional(),
+  notes: z.string().trim().max(2000).optional(),
+  /** Work out the invoices without saving anything. */
+  preview: z.boolean().optional(),
+});
+export type BillingRunCreate = z.infer<typeof billingRunCreateSchema>;
+
+export const invoiceListQuerySchema = paginationSchema.extend({
+  q: z.string().trim().min(1).max(100).optional(),
+  companyId: idSchema.optional(),
+  runId: idSchema.optional(),
+  status: z
+    .enum(["draft", "posted", "partially_paid", "paid", "void", "open", "all"])
+    .default("all"),
+});
+
+export const invoiceUpdateSchema = z
+  .object({
+    invoiceDate: isoDate,
+    dueDate: isoDate,
+    poNumber: z.string().trim().max(100).nullable(),
+    notes: z.string().trim().max(5000).nullable(),
+  })
+  .partial();
+export type InvoiceUpdate = z.infer<typeof invoiceUpdateSchema>;
+
+export const invoiceLineUpdateSchema = z
+  .object({
+    description: z.string().trim().min(1).max(500),
+    quantity: z.number().positive().max(1_000_000),
+    unitPrice: z.number().min(0).max(100_000_000),
+    taxable: z.boolean(),
+  })
+  .partial();
+export type InvoiceLineUpdate = z.infer<typeof invoiceLineUpdateSchema>;
+
+export const invoiceVoidSchema = z.object({ reason: z.string().trim().min(3).max(500) });

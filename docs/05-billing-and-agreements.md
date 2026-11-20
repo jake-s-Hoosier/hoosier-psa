@@ -106,6 +106,31 @@ precomputable.
 - Block hours are not split: an entry larger than the remaining balance bills in full.
 - Entries are decided in order of entry, so editing an older entry can change what later ones cover.
 
+### Billing runs as built
+- A run bills **every agreement whose cycle starts in a chosen month**, in advance. Periods start at the agreement's
+  `bill_start_date` and repeat every cycle, keeping the start day (clamped to month end), so a quarterly agreement
+  appears in one run in three and nothing is ever back-billed by accident.
+- The run **previews first** (nothing saved), then creates draft invoices, one per bill-to company, with a line per
+  addition. Quarterly or annual lines are the monthly price times the cycle's months; lines in effect for part of
+  the period are prorated by days when their flag is set. Tax is computed once per invoice on the taxable lines
+  (taxable when the line's product is taxable; no product means not taxable) using the customer's tax code, and a
+  customer with a tax-exempt id pays none. Terms set the due date; a customer with no terms is due on receipt.
+- Drafts can be edited: invoice date (the due date follows it), PO, notes, a line's description, quantity, price and
+  taxable flag, or a line or the whole invoice removed. Editing quantity or price replaces proration with quantity
+  times price. Warnings flag a missing tax code, missing terms and no QuickBooks link.
+- **No double billing.** A unique index on `(addition, period start, period end)` over non-void agreement lines, and
+  the run's own check, mean a re-run or a second run only bills what is not already on a draft or posted invoice. A
+  line added late to an already-billed period is picked up by the next run (prorated). Discarding a draft run or
+  voiding a posted invoice frees its periods.
+- **Posting** numbers the run's drafts in company-name order from a gap-free counter (`billing.invoice_counter`,
+  locked row, rolled back with the transaction) and freezes them; the database rejects edits and deletes of posted
+  invoices and their lines. A posted invoice is only voided, with a reason; the number stays on record and is not
+  reused. Voiding an invoice with payments is refused.
+- Until cutover the counter counts from 1 and posted invoices are test data. At cutover, seed the counter from the last
+  ConnectWise invoice number and remove test invoices (a script to do this is part of the cutover checklist).
+- Not yet built: payments (the `partially_paid` and `paid` states and `amount_paid` exist), PDFs, email delivery,
+  ticket-time, product and project invoices, credit memos, and the QuickBooks export.
+
 ## Open questions
 
 1. Invoice grouping preference: one invoice per company per run, or per agreement?

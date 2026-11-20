@@ -29,8 +29,8 @@ shadow environment; payroll export for two consecutive periods matches the curre
 
 ## M2. Agreements and billing (about 6-8 weeks)
 
-- Agreement types, agreements, additions with effective dating and proration (done: screen, rules and tests); coverage rules applied to ticket time (next).
-- Products, expenses and ticket billing methods; billing runs; invoice posting; PDF and email delivery; credit memos.
+- Agreement types, agreements, additions with effective dating and proration (done: screen, rules and tests); coverage rules applied to ticket time (done).
+- Agreement billing runs with draft review, gap-free posting and voids (done; screen, rules and tests). Still to come: ticket time and product invoicing, expenses and ticket billing methods, PDF and email delivery, payments, credit memos.
 - **QuickBooks mapping spike**, then the Web Connector export with queue, idempotency and reconciliation ([06](06-accounting-integrations.md)).
 - RMR and margin reports; recurring-vendor cost comparison.
 

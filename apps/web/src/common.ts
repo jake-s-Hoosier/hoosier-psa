@@ -5,10 +5,20 @@ export const fullName = (c: { firstName: string; lastName: string | null }) =>
 
 export const hours = (n: number) => `${n.toFixed(2).replace(/\.?0+$/, "")} h`;
 
-export const shortDate = (iso: string | null) =>
-  iso
-    ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-    : "—";
+/**
+ * Date-only values (YYYY-MM-DD) are calendar days, not instants: format them in UTC so a browser west of
+ * Greenwich does not show the day before. Timestamps format in the viewer's own zone.
+ */
+export const shortDate = (iso: string | null) => {
+  if (!iso) return "—";
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(iso);
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...(dateOnly ? { timeZone: "UTC" } : {}),
+  });
+};
 
 export const addressLine = (s: {
   addressLine1: string | null;

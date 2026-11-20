@@ -5,7 +5,18 @@ the first production release.
 
 ## [Unreleased]
 
+### Fixed
+- Date-only values (agreement dates, invoice dates, pay-period dates) showed one day early in US time zones; they are
+  now formatted as calendar days.
+
 ### Added
+- Billing runs and invoices for agreements (milestone 2). Migration 0013: billing runs, invoices, invoice lines, a
+  gap-free invoice counter, a unique guard so a recurring line bills once per period, and database rules that freeze
+  posted invoices. Pure rules in `@hoosier/shared` (billing periods by cycle, prorated lines, totals, due dates) with
+  tests. Billing screen (`#/billing`): preview and create a run for a month, review and edit the draft invoices, post
+  the run (assigns numbers) or discard it, search invoices, void a posted invoice with a reason. New permissions
+  `billing.invoice.read`, `billing.invoice.write` and `billing.invoice.post`. Nothing is sent to QuickBooks and no
+  payments are taken yet.
 - Agreement coverage on ticket time. Labor on a ticket whose agreement is in force on the work date bills at no charge
   and records the agreement, when the work type is flagged "counts against agreement": `covered` and
   `unlimited_remote` agreements cover all such labor; `block_hours` covers it while the prepaid balance lasts, and an

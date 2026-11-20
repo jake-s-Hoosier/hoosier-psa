@@ -5,6 +5,8 @@ import type {
   AgreementCreate,
   AgreementDetail,
   AgreementUpdate,
+  BillingRun,
+  BillingRunPreview,
   Company,
   CompanyNote,
   CompanyNoteCreate,
@@ -12,6 +14,9 @@ import type {
   CompanyUpdate,
   Contact,
   ContactInput,
+  Invoice,
+  InvoiceLineUpdate,
+  InvoiceUpdate,
   PayPeriod,
   PayrollRow,
   Site,
@@ -538,3 +543,38 @@ export const createAgreementType = (body: {
   coverage: string;
   autoRenew: boolean;
 }) => request<{ id: number }>("POST", "/api/v1/agreements/types", body);
+
+// ---- Billing ----
+export const listBillingRuns = (signal?: AbortSignal) =>
+  get<{ items: BillingRun[] }>("/api/v1/billing/runs", signal);
+export const getBillingRun = (id: number, signal?: AbortSignal) =>
+  get<BillingRun>(`/api/v1/billing/runs/${id}`, signal);
+export const previewBillingRun = (month: string, invoiceDate: string) =>
+  request<BillingRunPreview>("POST", "/api/v1/billing/runs", { month, invoiceDate, preview: true });
+export const createBillingRun = (month: string, invoiceDate: string, notes?: string) =>
+  request<BillingRun>("POST", "/api/v1/billing/runs", { month, invoiceDate, notes });
+export const discardBillingRun = (id: number) =>
+  request<BillingRun>("POST", `/api/v1/billing/runs/${id}/discard`);
+export const postBillingRun = (id: number) =>
+  request<BillingRun>("POST", `/api/v1/billing/runs/${id}/post`);
+export const listInvoices = (
+  p: { q?: string; status?: string; companyId?: number },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "200", status: p.status ?? "all" });
+  if (p.q?.trim()) params.set("q", p.q.trim());
+  if (p.companyId) params.set("companyId", String(p.companyId));
+  return get<ListResponse<Invoice>>(`/api/v1/billing/invoices?${params}`, signal);
+};
+export const getInvoice = (id: number, signal?: AbortSignal) =>
+  get<Invoice>(`/api/v1/billing/invoices/${id}`, signal);
+export const updateInvoice = (id: number, body: InvoiceUpdate) =>
+  request<Invoice>("PATCH", `/api/v1/billing/invoices/${id}`, body);
+export const deleteInvoice = (id: number) =>
+  request<void>("DELETE", `/api/v1/billing/invoices/${id}`);
+export const updateInvoiceLine = (id: number, lineId: number, body: InvoiceLineUpdate) =>
+  request<Invoice>("PATCH", `/api/v1/billing/invoices/${id}/lines/${lineId}`, body);
+export const deleteInvoiceLine = (id: number, lineId: number) =>
+  request<Invoice>("DELETE", `/api/v1/billing/invoices/${id}/lines/${lineId}`);
+export const voidInvoice = (id: number, reason: string) =>
+  request<Invoice>("POST", `/api/v1/billing/invoices/${id}/void`, { reason });

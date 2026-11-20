@@ -357,6 +357,25 @@ async function main(): Promise<void> {
       );
       day++;
     }
+    // Tax and terms on most customers (Speedway is left bare so the billing review shows its warnings),
+    // and a taxable product for the monitoring lines.
+    const taxCode = await one(
+      "INSERT INTO catalog.tax_code (name, rate_pct) VALUES ('Indiana 7%', 7) RETURNING id",
+    );
+    const net30 = await one(
+      "INSERT INTO catalog.billing_terms (name, due_days) VALUES ('Net 30', 30) RETURNING id",
+    );
+    for (const [ident, c] of Object.entries(co)) {
+      if (ident === "SPEEDWAY") continue;
+      await q("UPDATE crm.company SET tax_code_id = $2, billing_terms_id = $3 WHERE id = $1", [
+        c.id,
+        taxCode,
+        net30,
+      ]);
+    }
+    const monitoringProduct = await one(
+      "INSERT INTO catalog.product (identifier, description, kind, is_taxable, is_recurring) VALUES ('RMR-MON','Monitoring service','agreement',true,true) RETURNING id",
+    );
     // Agreement types, a few agreements with recurring lines, and tickets covered by them.
     const agreementTypes: Record<string, number> = {};
     for (const [name, cycle, coverage, renew] of [
@@ -408,9 +427,9 @@ async function main(): Promise<void> {
       for (const [desc, qty, price, cost] of lines)
         await q(
           `INSERT INTO billing.agreement_addition
-             (agreement_id, description, quantity, unit_price, unit_cost, effective_from)
-           VALUES ($1,$2,$3,$4,$5,${ago(startAgo)})`,
-          [aid, desc, qty, price, cost],
+             (agreement_id, description, quantity, unit_price, unit_cost, effective_from, product_id)
+           VALUES ($1,$2,$3,$4,$5,${ago(startAgo)},$6)`,
+          [aid, desc, qty, price, cost, type === "Monitoring" ? monitoringProduct : null],
         );
     }
     await q(

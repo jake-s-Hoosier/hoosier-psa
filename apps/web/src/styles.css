@@ -697,3 +697,12 @@ tfoot td {
   padding-left: 8px;
   padding-right: 8px;
 }
+
+/* Review warnings on draft invoices */
+.notice {
+  margin: var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-accent-soft);
+  border-radius: 6px;
+  font-size: 13px;
+}
