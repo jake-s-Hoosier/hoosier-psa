@@ -309,6 +309,8 @@ export const timeEntrySchema = z.object({
   company: z.string(),
   ticketId: z.number().int().nullable(),
   ticketSummary: z.string().nullable(),
+  /** Set when an agreement covered this labor (billed at no charge). */
+  agreementId: z.number().int().nullable(),
   workRoleId: z.number().int(),
   workTypeId: z.number().int(),
   workDate: z.string(),
@@ -525,6 +527,8 @@ export interface AgreementDetail extends Agreement {
   serviceHours: number;
   serviceCost: number;
   ticketCount: number;
+  /** Hours of labor this agreement has covered (billed at no charge). */
+  coveredHours: number;
 }
 
 export const agreementListQuerySchema = paginationSchema.extend({

@@ -339,7 +339,9 @@ function AgreementDetailPanel(props: {
         <dt>Coverage</dt>
         <dd>
           {COVERAGE_LABEL[a.coverage]}
-          {a.blockHours !== null && ` · ${hours(a.blockHours)}`}
+          {a.coverage === "block_hours" && a.blockHours !== null
+            ? ` · ${hours(Math.max(a.blockHours - a.coveredHours, 0))} left of ${hours(a.blockHours)}`
+            : a.coverage !== "none" && ` · ${hours(a.coveredHours)} covered so far`}
         </dd>
         {a.poNumber && (
           <>

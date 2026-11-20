@@ -6,6 +6,13 @@ the first production release.
 ## [Unreleased]
 
 ### Added
+- Agreement coverage on ticket time. Labor on a ticket whose agreement is in force on the work date bills at no charge
+  and records the agreement, when the work type is flagged "counts against agreement": `covered` and
+  `unlimited_remote` agreements cover all such labor; `block_hours` covers it while the prepaid balance lasts, and an
+  entry that would overdraw the balance bills normally (it is not split). Applied when time is added, edited or a
+  timer stops, and re-applied to a ticket's open time when its agreement changes; submitted, approved and billed time
+  never changes, and an explicit billing choice on an entry stands. The agreement shows hours covered and block hours
+  left. Work types default to "counts against agreement", so unflag on-site or other work types that should still bill.
 - Agreements (milestone 2, first stage). New `billing` schema: agreement types, agreements and recurring lines
   ("additions"), plus the agreement links on tickets and time that earlier migrations had deferred. Lines are
   effective-dated and never edited in place; a price or quantity change ends the old line and starts a new one (a

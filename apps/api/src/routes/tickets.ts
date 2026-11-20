@@ -12,6 +12,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type pg from "pg";
 import { z } from "zod";
 import { HttpError } from "../errors.js";
+import { reapplyCoverage } from "./time.js";
 
 interface TicketRow {
   id: string;
@@ -298,6 +299,10 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
           `UPDATE service.ticket SET ${sets.join(", ")} WHERE id = $${params.length}`,
           params,
         );
+      }
+      // New cover (or none) changes how the ticket's open time bills.
+      if (body.agreementId !== undefined || body.companyId !== undefined) {
+        await reapplyCoverage(client, id);
       }
       return loadTicket(client, id);
     });

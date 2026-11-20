@@ -17,6 +17,7 @@ import {
 import type { FastifyPluginAsync } from "fastify";
 import type pg from "pg";
 import { z } from "zod";
+import { coverageFor } from "../coverage.js";
 import { HttpError } from "../errors.js";
 
 interface TimeRow {
@@ -26,6 +27,7 @@ interface TimeRow {
   company: string;
   ticket_id: string | null;
   ticket_summary: string | null;
+  agreement_id: string | null;
   work_role_id: string;
   work_type_id: string;
   work_date: string; // selected as text to avoid timezone shifts
@@ -45,7 +47,7 @@ const SELECT_TIME = `
          (SELECT name FROM crm.company WHERE id = timekeeping.time_entry.company_id) AS company,
          ticket_id,
          (SELECT summary FROM service.ticket WHERE id = timekeeping.time_entry.ticket_id) AS ticket_summary,
-         work_role_id, work_type_id,
+         agreement_id, work_role_id, work_type_id,
          to_char(work_date, 'YYYY-MM-DD') AS work_date, started_at, ended_at, is_timer,
          actual_hours, billed_hours, billable, bill_rate, status, notes
     FROM timekeeping.time_entry`;
@@ -58,6 +60,7 @@ function toEntry(r: TimeRow): TimeEntry {
     company: r.company,
     ticketId: r.ticket_id === null ? null : Number(r.ticket_id),
     ticketSummary: r.ticket_summary,
+    agreementId: r.agreement_id === null ? null : Number(r.agreement_id),
     workRoleId: Number(r.work_role_id),
     workTypeId: Number(r.work_type_id),
     workDate: r.work_date,
@@ -181,6 +184,62 @@ async function assertPeriodOpen(client: pg.PoolClient, periodId: number | null):
   }
 }
 
+/**
+ * Re-decides coverage for a ticket's open time after the ticket's agreement changed. Entries someone set
+ * to a billing of their own (not the work type's default and not covered) are left alone; submitted,
+ * approved and billed time never changes here.
+ */
+export async function reapplyCoverage(client: pg.PoolClient, ticketId: number): Promise<void> {
+  const { rows } = await client.query<{
+    id: string;
+    member_id: string;
+    work_role_id: string;
+    work_type_id: string;
+    work_date: string;
+    actual_hours: string;
+    started_at: Date | null;
+    ended_at: Date | null;
+    billable: string;
+    agreement_id: string | null;
+  }>(
+    `SELECT id, member_id, work_role_id, work_type_id, to_char(work_date, 'YYYY-MM-DD') AS work_date,
+            actual_hours, started_at, ended_at, billable, agreement_id
+       FROM timekeeping.time_entry
+      WHERE ticket_id = $1 AND status = 'open' AND NOT is_timer
+      ORDER BY work_date, id`,
+    [ticketId],
+  );
+  for (const e of rows) {
+    const pricing = await pricingFor(
+      client,
+      Number(e.member_id),
+      Number(e.work_role_id),
+      Number(e.work_type_id),
+    );
+    if (e.agreement_id === null && e.billable !== pricing.billTime) continue;
+    const hoursNow = Number(e.actual_hours);
+    const cov = await coverageFor(client, {
+      ticketId,
+      workTypeId: Number(e.work_type_id),
+      workDate: e.work_date,
+      hours: hoursNow,
+      excludeEntryId: Number(e.id),
+    });
+    const billable = cov.covered ? "no_charge" : pricing.billTime;
+    const exact =
+      e.started_at && e.ended_at ? exactHoursBetween(e.started_at, e.ended_at) : hoursNow;
+    await client.query(
+      "UPDATE timekeeping.time_entry SET billable = $2, billed_hours = $3, agreement_id = $4 WHERE id = $1",
+      [
+        e.id,
+        billable,
+        billable === "billable" ? billedHours(exact, pricing.rule) : 0,
+        cov.covered ? cov.agreementId : null,
+      ],
+    );
+  }
+}
+
 export const timeRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", { config: { perm: "timekeeping.time.read_own" } }, async (req) => {
     const q = timeEntryListQuerySchema.parse(req.query);
@@ -287,13 +346,31 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
         Number(running.work_role_id),
         Number(running.work_type_id),
       );
-      const billed = running.billable === "billable" ? billedHours(exact, pricing.rule) : 0;
+      // Coverage is decided when the length is known, unless the person chose the billing themselves.
+      const cov = await coverageFor(client, {
+        ticketId: running.ticket_id === null ? null : Number(running.ticket_id),
+        workTypeId: Number(running.work_type_id),
+        workDate: running.work_date,
+        hours: actual,
+        excludeEntryId: Number(running.id),
+      });
+      const billable =
+        cov.covered && running.billable === pricing.billTime ? "no_charge" : running.billable;
+      const billed = billable === "billable" ? billedHours(exact, pricing.rule) : 0;
       await client.query(
         `UPDATE timekeeping.time_entry
             SET ended_at = $2, is_timer = false, actual_hours = $3, billed_hours = $4,
-                notes = COALESCE($5, notes)
+                billable = $6, agreement_id = $7, notes = COALESCE($5, notes)
           WHERE id = $1`,
-        [running.id, ended, actual, billed, body.notes ?? null],
+        [
+          running.id,
+          ended,
+          actual,
+          billed,
+          body.notes ?? null,
+          billable,
+          billable === "no_charge" && cov.covered ? cov.agreementId : null,
+        ],
       );
       const full = await client.query<TimeRow>(`${SELECT_TIME} WHERE id = $1`, [running.id]);
       return full.rows[0] as TimeRow;
@@ -320,7 +397,19 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
       }
       const pricing = await pricingFor(client, memberId, body.workRoleId, body.workTypeId);
       // Time with no ticket has nothing to bill against; it is still paid time.
-      const billable = ticketId === null ? "do_not_bill" : (body.billable ?? pricing.billTime);
+      const cov = await coverageFor(client, {
+        ticketId,
+        workTypeId: body.workTypeId,
+        workDate: body.workDate,
+        hours:
+          body.hours ??
+          exactHoursBetween(new Date(body.startedAt as string), new Date(body.endedAt as string)),
+      });
+      // Covered labor bills at no charge unless the person chose the billing themselves.
+      const billable =
+        ticketId === null
+          ? "do_not_bill"
+          : (body.billable ?? (cov.covered ? "no_charge" : pricing.billTime));
       const periodId = await periodIdFor(client, body.workDate);
       await assertPeriodOpen(client, periodId);
       const started = body.startedAt ? new Date(body.startedAt) : null;
@@ -334,8 +423,8 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
         `INSERT INTO timekeeping.time_entry
            (member_id, company_id, charge_type, ticket_id, work_role_id, work_type_id, work_date,
             started_at, ended_at, actual_hours, billed_hours, billable, bill_rate, cost_rate,
-            notes, internal_notes, pay_period_id)
-         VALUES ($1,$2,$17,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            notes, internal_notes, pay_period_id, agreement_id)
+         VALUES ($1,$2,$17,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$18)
          RETURNING id`,
         [
           memberId,
@@ -355,6 +444,7 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
           body.internalNotes ?? null,
           periodId,
           ticketId === null ? "non_ticket" : "service_ticket",
+          billable === "no_charge" && cov.covered ? cov.agreementId : null,
         ],
       );
       const full = await client.query<TimeRow>(`${SELECT_TIME} WHERE id = $1`, [rows[0]?.id]);
@@ -377,13 +467,14 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
         status: string;
         is_timer: boolean;
         ticket_id: string | null;
+        agreement_id: string | null;
         work_role_id: string;
         work_type_id: string;
         work_date: string;
         actual_hours: string;
         billable: string;
       }>(
-        `SELECT member_id, status, is_timer, ticket_id, work_role_id, work_type_id,
+        `SELECT member_id, status, is_timer, ticket_id, agreement_id, work_role_id, work_type_id,
                 to_char(work_date, 'YYYY-MM-DD') AS work_date, actual_hours, billable
            FROM timekeeping.time_entry WHERE id = $1 FOR UPDATE`,
         [id],
@@ -414,8 +505,28 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
       const owner = Number(cur.member_id);
       const pricing = await pricingFor(client, owner, roleId, typeId);
       const hasTicket = cur.ticket_id !== null;
-      const billable = hasTicket ? (body.billable ?? cur.billable) : "do_not_bill";
       const exact = body.hours ?? Number(cur.actual_hours);
+      // Billing: a choice made in this request stands; otherwise entries still on their default (or
+      // already covered) are re-decided against the agreement, since hours or type may have changed.
+      let billable: string;
+      let coveredBy: number | null = null;
+      if (!hasTicket) {
+        billable = "do_not_bill";
+      } else if (body.billable !== undefined) {
+        billable = body.billable;
+      } else if (cur.agreement_id !== null || cur.billable === pricing.billTime) {
+        const cov = await coverageFor(client, {
+          ticketId: Number(cur.ticket_id),
+          workTypeId: typeId,
+          workDate,
+          hours: exact,
+          excludeEntryId: id,
+        });
+        billable = cov.covered ? "no_charge" : pricing.billTime;
+        coveredBy = cov.covered ? cov.agreementId : null;
+      } else {
+        billable = cur.billable;
+      }
       const billed = billable === "billable" ? billedHours(exact, pricing.rule) : 0;
       // Hours given by hand replace any recorded start and end; the times no longer describe the entry.
       const timesCleared = body.hours !== undefined;
@@ -423,7 +534,7 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
         `UPDATE timekeeping.time_entry
             SET work_date = $2, work_role_id = $3, work_type_id = $4, actual_hours = $5,
                 billed_hours = $6, billable = $7, bill_rate = $8, cost_rate = $9,
-                pay_period_id = $10,
+                pay_period_id = $10, agreement_id = $16,
                 started_at = CASE WHEN $11 THEN NULL ELSE started_at END,
                 ended_at = CASE WHEN $11 THEN NULL ELSE ended_at END,
                 notes = CASE WHEN $12 THEN $13 ELSE notes END,
@@ -446,6 +557,7 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
           body.notes ?? null,
           body.internalNotes !== undefined,
           body.internalNotes ?? null,
+          coveredBy,
         ],
       );
       const full = await client.query<TimeRow>(`${SELECT_TIME} WHERE id = $1`, [id]);

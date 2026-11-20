@@ -131,3 +131,39 @@ export const renewalDue = (
   const d = daysToRenewal(a, today);
   return d !== null && d >= 0 && d <= a.renewalNoticeDays;
 };
+
+export interface CoverageContext {
+  coverage: Coverage;
+  /** Prepaid hours for a block agreement; null when none were set. */
+  blockHours: number | null;
+  /** Hours already covered by this agreement (not counting the entry being decided). */
+  usedHours: number;
+}
+
+export interface CoverageDecision {
+  covered: boolean;
+  reason: "no_agreement" | "no_coverage" | "work_type_excluded" | "block_exhausted" | "covered";
+}
+
+/**
+ * Decides whether one piece of ticket labor is covered by the ticket's agreement (docs/05).
+ *  - none: nothing is covered.
+ *  - covered, unlimited_remote: labor of work types flagged counts_against_agreement is covered; for
+ *    unlimited remote support those flagged types are the remote ones. Other work types bill as usual.
+ *  - block_hours: flagged labor is covered while the prepaid balance lasts; an entry that would take the
+ *    balance below zero bills normally rather than being split.
+ * Covered labor bills at no charge, with its cost still recorded.
+ */
+export function coverageDecision(
+  ctx: CoverageContext | null,
+  entry: { hours: number; workTypeCounts: boolean },
+): CoverageDecision {
+  if (ctx === null) return { covered: false, reason: "no_agreement" };
+  if (ctx.coverage === "none") return { covered: false, reason: "no_coverage" };
+  if (!entry.workTypeCounts) return { covered: false, reason: "work_type_excluded" };
+  if (ctx.coverage === "block_hours") {
+    const remaining = (ctx.blockHours ?? 0) - ctx.usedHours;
+    if (entry.hours > remaining + 1e-9) return { covered: false, reason: "block_exhausted" };
+  }
+  return { covered: true, reason: "covered" };
+}

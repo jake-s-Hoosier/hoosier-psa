@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   additionAmountForPeriod,
   agreementStatus,
+  coverageDecision,
   marginPct,
   monthlyCost,
   monthlyRevenue,
@@ -99,5 +100,42 @@ describe("renewal window", () => {
   });
   it("is never due once cancelled", () => {
     expect(renewalDue({ ...a, cancelledDate: "2026-08-01" }, "2026-08-02")).toBe(false);
+  });
+});
+
+describe("coverageDecision", () => {
+  const ctx = (over: Partial<Parameters<typeof coverageDecision>[0] & object> = {}) => ({
+    coverage: "unlimited_remote" as const,
+    blockHours: null,
+    usedHours: 0,
+    ...over,
+  });
+  it("covers nothing without an agreement or coverage", () => {
+    expect(coverageDecision(null, { hours: 1, workTypeCounts: true }).reason).toBe("no_agreement");
+    expect(
+      coverageDecision(ctx({ coverage: "none" }), { hours: 1, workTypeCounts: true }).covered,
+    ).toBe(false);
+  });
+  it("covers flagged work types and bills the others", () => {
+    expect(coverageDecision(ctx(), { hours: 2, workTypeCounts: true }).covered).toBe(true);
+    expect(coverageDecision(ctx(), { hours: 2, workTypeCounts: false }).reason).toBe(
+      "work_type_excluded",
+    );
+    expect(
+      coverageDecision(ctx({ coverage: "covered" }), { hours: 9, workTypeCounts: true }).covered,
+    ).toBe(true);
+  });
+  it("draws block hours down and stops when an entry would overdraw it", () => {
+    const block = ctx({ coverage: "block_hours", blockHours: 10, usedHours: 7 });
+    expect(coverageDecision(block, { hours: 3, workTypeCounts: true }).covered).toBe(true);
+    expect(coverageDecision(block, { hours: 3.25, workTypeCounts: true }).reason).toBe(
+      "block_exhausted",
+    );
+    expect(
+      coverageDecision(ctx({ coverage: "block_hours", blockHours: null }), {
+        hours: 1,
+        workTypeCounts: true,
+      }).covered,
+    ).toBe(false);
   });
 });

@@ -288,10 +288,16 @@ export const agreementRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     const agreement = await loadAgreement(app.pool, id);
     const additions = await loadAdditions(app.pool, id);
-    const expense = await app.pool.query<{ hours: string; cost: string; tickets: string }>(
+    const expense = await app.pool.query<{
+      hours: string;
+      cost: string;
+      tickets: string;
+      covered: string;
+    }>(
       `SELECT COALESCE(sum(te.actual_hours), 0) AS hours,
               COALESCE(sum(te.actual_hours * te.cost_rate), 0) AS cost,
-              (SELECT count(*) FROM service.ticket WHERE agreement_id = $1) AS tickets
+              (SELECT count(*) FROM service.ticket WHERE agreement_id = $1) AS tickets,
+              COALESCE(sum(te.actual_hours) FILTER (WHERE te.agreement_id = $1), 0) AS covered
          FROM timekeeping.time_entry te
          JOIN service.ticket t ON t.id = te.ticket_id
         WHERE t.agreement_id = $1 AND te.status <> 'void'`,
@@ -304,6 +310,7 @@ export const agreementRoutes: FastifyPluginAsync = async (app) => {
       serviceHours: Number(e?.hours ?? 0),
       serviceCost: Number(Number(e?.cost ?? 0).toFixed(2)),
       ticketCount: Number(e?.tickets ?? 0),
+      coveredHours: Number(e?.covered ?? 0),
     };
     return detail;
   });

@@ -98,6 +98,14 @@ precomputable.
 - Status (`pending`, `active`, `expired`, `cancelled`) is computed, never stored. An auto-renewing agreement past its
   end date stays active.
 
+### Coverage on ticket time
+- Covered labor is billed at no charge (cost still recorded) and carries the agreement id; the decision lives in
+  `coverageDecision` (`@hoosier/shared`) and `coverageFor` (API). Which work types are covered is the work type's
+  `counts_against_agreement` flag, which defaults to true, so an ESP "unlimited remote" agreement covers on-site work
+  unless that work type is unflagged. Check the flags before the first billing run.
+- Block hours are not split: an entry larger than the remaining balance bills in full.
+- Entries are decided in order of entry, so editing an older entry can change what later ones cover.
+
 ## Open questions
 
 1. Invoice grouping preference: one invoice per company per run, or per agreement?
