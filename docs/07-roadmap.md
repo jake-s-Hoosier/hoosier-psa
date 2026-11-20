@@ -47,7 +47,9 @@ differences; QuickBooks receives and matches invoices with no manual fixes.
 
 ## M4. Sales and procurement (about 6 weeks, scope pending decisions)
 
-- Opportunities, stages, activities, versioned quotes (retiring CW Sell/CPQ), quote-to-project conversion.
+- Opportunities, stages, activities and external quote/design links: built (slice A).
+- Sales orders from opportunities (fixed fee or time and materials), billing milestones, order-to-project conversion: next (slice B).
+- Quotes come from Smart Pricing Tables and estimates and designs from SembleAI, mirrored through `sales.external_ref`; adapters are built after the 14-day trial starting 2026-11-30 and once API documentation is available.
 - Purchase orders, receiving, vendor costs linked to projects and invoices; automated distributor price updates into the catalog.
 
 ## M5. Payments and portal (about 6 weeks)

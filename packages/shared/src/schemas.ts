@@ -1248,3 +1248,162 @@ export interface ProjectBilling {
   status: ProjectStatus;
   scopes: ProjectBillingScope[];
 }
+
+// ---------------------------------------------------------------------------------------------
+// Sales: opportunities, activities, links to quotes and designs in other systems
+// ---------------------------------------------------------------------------------------------
+
+export interface SalesStage {
+  id: number;
+  name: string;
+  sortOrder: number;
+  probability: number;
+  isWon: boolean;
+  isLost: boolean;
+}
+
+export const activityKinds = ["call", "email", "meeting", "site_visit", "note", "task"] as const;
+export type ActivityKind = (typeof activityKinds)[number];
+
+export interface Opportunity {
+  id: number;
+  companyId: number;
+  company: string;
+  siteId: number | null;
+  site: string | null;
+  contactId: number | null;
+  contact: string | null;
+  name: string;
+  stageId: number;
+  stage: string;
+  probability: number;
+  isWon: boolean;
+  isLost: boolean;
+  ownerMemberId: number | null;
+  owner: string | null;
+  expectedAmount: string | null;
+  /** Expected amount weighted by the stage's probability. */
+  weightedAmount: string;
+  expectedClose: string | null;
+  source: string | null;
+  notes: string | null;
+  lostReason: string | null;
+  closedAt: string | null;
+  openTasks: number;
+  createdAt: string;
+}
+
+export interface Activity {
+  id: number;
+  opportunityId: number;
+  kind: ActivityKind;
+  subject: string;
+  body: string | null;
+  dueDate: string | null;
+  completedAt: string | null;
+  assignedMemberId: number | null;
+  assignedTo: string | null;
+  createdAt: string;
+}
+
+export const externalProviders = ["smart_pricing_tables", "sembleai", "other"] as const;
+export const externalKinds = ["quote", "estimate", "design", "document", "other"] as const;
+export const externalEntityTypes = ["opportunity", "sales_order", "project"] as const;
+export type ExternalProvider = (typeof externalProviders)[number];
+export type ExternalKind = (typeof externalKinds)[number];
+export type ExternalEntityType = (typeof externalEntityTypes)[number];
+
+export interface ExternalRef {
+  id: number;
+  entityType: ExternalEntityType;
+  entityId: number;
+  provider: ExternalProvider;
+  kind: ExternalKind;
+  externalId: string;
+  version: string | null;
+  status: string | null;
+  title: string | null;
+  url: string | null;
+  amount: string | null;
+  syncedAt: string | null;
+  createdAt: string;
+}
+
+export const opportunityCreateSchema = z.object({
+  companyId: idSchema,
+  siteId: idSchema.optional(),
+  contactId: idSchema.optional(),
+  name: z.string().trim().min(1).max(300),
+  /** Defaults to the first open stage. */
+  stageId: idSchema.optional(),
+  ownerMemberId: idSchema.optional(),
+  expectedAmount: z.number().min(0).max(1_000_000_000).optional(),
+  expectedClose: isoDate.optional(),
+  source: z.string().trim().max(100).optional(),
+  notes: z.string().trim().max(10000).optional(),
+});
+export type OpportunityCreate = z.input<typeof opportunityCreateSchema>;
+
+export const opportunityUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(300),
+    siteId: idSchema.nullable(),
+    contactId: idSchema.nullable(),
+    stageId: idSchema,
+    ownerMemberId: idSchema.nullable(),
+    expectedAmount: z.number().min(0).max(1_000_000_000).nullable(),
+    expectedClose: isoDate.nullable(),
+    source: z.string().trim().max(100).nullable(),
+    notes: z.string().trim().max(10000).nullable(),
+    /** Required when the stage is a lost stage. */
+    lostReason: z.string().trim().max(500).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type OpportunityUpdate = z.infer<typeof opportunityUpdateSchema>;
+
+export const opportunityListQuerySchema = paginationSchema.extend({
+  q: z.string().trim().min(1).max(100).optional(),
+  companyId: idSchema.optional(),
+  ownerMemberId: idSchema.optional(),
+  stageId: idSchema.optional(),
+  /** open = not won or lost (default) */
+  state: z.enum(["open", "won", "lost", "all"]).default("open"),
+});
+
+export const activityCreateSchema = z.object({
+  kind: z.enum(activityKinds),
+  subject: z.string().trim().min(1).max(300),
+  body: z.string().trim().max(10000).optional(),
+  dueDate: isoDate.optional(),
+  assignedMemberId: idSchema.optional(),
+});
+export type ActivityCreate = z.input<typeof activityCreateSchema>;
+
+export const activityUpdateSchema = z
+  .object({
+    subject: z.string().trim().min(1).max(300),
+    body: z.string().trim().max(10000).nullable(),
+    dueDate: isoDate.nullable(),
+    assignedMemberId: idSchema.nullable(),
+    completed: z.boolean(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+
+export const externalRefCreateSchema = z.object({
+  provider: z.enum(externalProviders),
+  kind: z.enum(externalKinds),
+  externalId: z.string().trim().min(1).max(200),
+  version: z.string().trim().max(50).optional(),
+  status: z.string().trim().max(100).optional(),
+  title: z.string().trim().max(300).optional(),
+  url: z
+    .string()
+    .trim()
+    .regex(/^https?:\/\//, "Use a full web address")
+    .max(1000)
+    .optional(),
+  amount: z.number().min(0).max(1_000_000_000).optional(),
+});
+export type ExternalRefCreate = z.input<typeof externalRefCreateSchema>;

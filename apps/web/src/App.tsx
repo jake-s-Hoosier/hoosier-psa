@@ -7,6 +7,7 @@ import { CompaniesPage } from "./CompaniesPage";
 import { CompanyPage } from "./CompanyPage";
 import { LoginPage } from "./LoginPage";
 import { MailPage } from "./MailPage";
+import { OpportunitiesPage } from "./OpportunitiesPage";
 import { ProjectsPage } from "./ProjectsPage";
 import { TicketsPage } from "./TicketsPage";
 import { TimePage } from "./TimePage";
@@ -26,6 +27,7 @@ import { navigate, useRoute } from "./router";
 
 const NAV = [
   { id: "companies", label: "Companies", ready: true, perm: "crm.company.read" },
+  { id: "opportunities", label: "Opportunities", ready: true, perm: "sales.opportunity.read" },
   { id: "tickets", label: "Service tickets", ready: true, perm: "service.ticket.read" },
   { id: "time", label: "Time", ready: true, perm: "timekeeping.time.read_own" },
   { id: "dispatch", label: "Dispatch", ready: false },
@@ -203,6 +205,9 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
           )}
           {page === "billing" && can("billing.invoice.read") && (
             <BillingPage can={can} routeId={route.id} />
+          )}
+          {page === "opportunities" && can("sales.opportunity.read") && (
+            <OpportunitiesPage can={can} lookups={lookups} routeId={route.id} />
           )}
           {page === "projects" && can("project.read") && (
             <ProjectsPage can={can} lookups={lookups} routeId={route.id} />

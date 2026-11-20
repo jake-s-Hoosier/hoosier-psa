@@ -1,4 +1,6 @@
 import type {
+  Activity,
+  ActivityCreate,
   AdditionCreate,
   Agreement,
   AgreementAddition,
@@ -16,9 +18,15 @@ import type {
   ContactInput,
   CreditMemo,
   CreditMemoCreate,
+  ExternalEntityType,
+  ExternalRef,
+  ExternalRefCreate,
   Invoice,
   InvoiceLineUpdate,
   InvoiceUpdate,
+  Opportunity,
+  OpportunityCreate,
+  OpportunityUpdate,
   PayPeriod,
   Payment,
   PaymentCreate,
@@ -32,6 +40,7 @@ import type {
   ProjectBillingMode,
   ProjectCreate,
   ProjectUpdate,
+  SalesStage,
   Site,
   SiteInput,
   Ticket,
@@ -720,3 +729,64 @@ export interface ProjectTicketRow {
 }
 export const listProjectTickets = (id: number, signal?: AbortSignal) =>
   get<{ items: ProjectTicketRow[] }>(`/api/v1/projects/${id}/tickets`, signal);
+
+// ---- Sales ----
+export const listSalesStages = () => get<{ items: SalesStage[] }>("/api/v1/sales/stages");
+export const getPipeline = (signal?: AbortSignal) =>
+  get<{
+    items: Array<{
+      stageId: number;
+      stage: string;
+      count: number;
+      amount: string;
+      weightedAmount: string;
+    }>;
+  }>("/api/v1/sales/pipeline", signal);
+export const listOpportunities = (
+  p: { q?: string; state?: "open" | "won" | "lost" | "all"; stageId?: number; companyId?: number },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "200", state: p.state ?? "open" });
+  if (p.q) params.set("q", p.q);
+  if (p.stageId) params.set("stageId", String(p.stageId));
+  if (p.companyId) params.set("companyId", String(p.companyId));
+  return get<ListResponse<Opportunity>>(`/api/v1/sales/opportunities?${params}`, signal);
+};
+export const getOpportunity = (id: number, signal?: AbortSignal) =>
+  get<Opportunity>(`/api/v1/sales/opportunities/${id}`, signal);
+export const createOpportunity = (body: OpportunityCreate) =>
+  request<Opportunity>("POST", "/api/v1/sales/opportunities", body);
+export const updateOpportunity = (id: number, body: OpportunityUpdate) =>
+  request<Opportunity>("PATCH", `/api/v1/sales/opportunities/${id}`, body);
+export const listActivities = (id: number, signal?: AbortSignal) =>
+  get<{ items: Activity[] }>(`/api/v1/sales/opportunities/${id}/activities`, signal);
+export const createActivity = (id: number, body: ActivityCreate) =>
+  request<Activity>("POST", `/api/v1/sales/opportunities/${id}/activities`, body);
+export const updateActivity = (
+  id: number,
+  activityId: number,
+  body: { completed?: boolean; subject?: string },
+) => request<Activity>("PATCH", `/api/v1/sales/opportunities/${id}/activities/${activityId}`, body);
+export const deleteActivity = (id: number, activityId: number) =>
+  request<void>("DELETE", `/api/v1/sales/opportunities/${id}/activities/${activityId}`);
+export const listExternalRefs = (
+  entityType: ExternalEntityType,
+  entityId: number,
+  signal?: AbortSignal,
+) =>
+  get<{ items: ExternalRef[] }>(
+    `/api/v1/sales/external-refs?entityType=${entityType}&entityId=${entityId}`,
+    signal,
+  );
+export const createExternalRef = (
+  entityType: ExternalEntityType,
+  entityId: number,
+  body: ExternalRefCreate,
+) =>
+  request<ExternalRef>(
+    "POST",
+    `/api/v1/sales/external-refs?entityType=${entityType}&entityId=${entityId}`,
+    body,
+  );
+export const deleteExternalRef = (id: number) =>
+  request<void>("DELETE", `/api/v1/sales/external-refs/${id}`);

@@ -10,6 +10,13 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Opportunities (sales slice A). Migration 0020: `sales.stage` (seeded Qualify, Site walk and design, Proposal sent,
+  Negotiation, Won, Lost, each with a win probability), `sales.opportunity`, `sales.activity` (calls, emails, meetings,
+  site visits, notes and dated tasks) and `sales.external_ref`, a provider-neutral link from an opportunity, order or
+  project to a quote, estimate or design held in another system (Smart Pricing Tables, SembleAI). Moving to Won or Lost
+  stamps the close date; Lost needs a reason. Opportunities page with pipeline by stage, weighted value, activity log and
+  task checklist, and the link panel. New permissions `sales.opportunity.read` and `.write` (Manager, Sales).
+  Nothing calls the external systems yet; links are entered by hand until their APIs are available.
 - Projects and project invoicing. Migration 0018: `project.project` and `project.phase`, and `service.ticket` gains
   `phase_id` (with the existing `project_id` now a real foreign key). A project has a customer, a billing method (fixed
   fee, actual rates, not-to-exceed, override rate), PO, budget hours and dates; a phase can be billed separately, with
