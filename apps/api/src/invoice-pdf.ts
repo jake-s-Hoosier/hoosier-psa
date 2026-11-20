@@ -123,7 +123,13 @@ export function renderInvoicePdf(d: InvoicePdfData): Promise<Buffer> {
       ["Total", usd(d.total), true],
     ];
     for (const p of d.payments)
-      totalRows.push([`Payment ${day(p.date)} · ${p.label}`, `-${usd(p.amount)}`, false]);
+      totalRows.push([
+        p.label.startsWith("credit memo")
+          ? `Credit memo ${p.label.slice(12)} · ${day(p.date)}`
+          : `Payment ${day(p.date)} · ${p.label}`,
+        `-${usd(p.amount)}`,
+        false,
+      ]);
     const balance = Number(d.total) - Number(d.amountPaid);
     if (d.payments.length > 0 || d.status === "paid")
       totalRows.push(["Balance due", usd(balance), true]);

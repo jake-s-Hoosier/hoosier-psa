@@ -81,6 +81,21 @@ draft -> posted -> partially_paid -> paid
 - Each line snapshots description, quantity, unit price, unit cost, tax code and income-account mapping.
 - Terms (`catalog.billing_terms`) set `due_date`; late-fee and statement behaviour is configurable per company.
 
+## Credit memos (as built)
+
+A credit memo corrects or refunds billing without touching a posted invoice. It belongs to a customer, may point at the
+invoice it corrects (copying that invoice's tax rate and refusing credits beyond the invoice total in all), carries its
+own lines and a required reason, and takes its number from the invoice number series so QuickBooks references stay in
+one run. ConnectWise does the same (a credit memo is an invoice with a negative total in the same series; 11 in nine
+years plus one in January 2026). Once issued a memo cannot be edited, only voided.
+
+Applying a memo to an invoice works like applying a payment: same customer, posted or part-paid invoice, never more
+than the memo or the balance. An invoice's paid amount is its live payments plus its live credits, and its status
+follows. Credit not applied stays on the customer's account to apply to a later invoice. Voiding a memo reopens what it
+reduced. Credits are shown on the invoice PDF and screen.
+
+Credit memos do not release time entries or ticket charges. To rebill that work, void the invoice (which does).
+
 ## Margin and leakage reporting
 
 Because lines carry cost snapshots and agreement additions carry unit cost, reports can compare

@@ -14,6 +14,8 @@ import type {
   CompanyUpdate,
   Contact,
   ContactInput,
+  CreditMemo,
+  CreditMemoCreate,
   Invoice,
   InvoiceLineUpdate,
   InvoiceUpdate,
@@ -642,3 +644,21 @@ export async function openInvoicePdf(id: number): Promise<void> {
   window.open(url, "_blank", "noopener");
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
+
+export const listCreditMemos = (
+  p: { state?: string; companyId?: number; invoiceId?: number },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "200", state: p.state ?? "posted" });
+  if (p.companyId) params.set("companyId", String(p.companyId));
+  if (p.invoiceId) params.set("invoiceId", String(p.invoiceId));
+  return get<ListResponse<CreditMemo>>(`/api/v1/credit-memos?${params}`, signal);
+};
+export const createCreditMemo = (body: CreditMemoCreate) =>
+  request<CreditMemo>("POST", "/api/v1/credit-memos", body);
+export const applyCreditMemo = (id: number, invoiceId: number, amount: number) =>
+  request<CreditMemo>("POST", `/api/v1/credit-memos/${id}/apply`, { invoiceId, amount });
+export const unapplyCreditMemo = (id: number, applicationId: number) =>
+  request<CreditMemo>("DELETE", `/api/v1/credit-memos/${id}/applications/${applicationId}`);
+export const voidCreditMemo = (id: number, reason: string) =>
+  request<CreditMemo>("POST", `/api/v1/credit-memos/${id}/void`, { reason });

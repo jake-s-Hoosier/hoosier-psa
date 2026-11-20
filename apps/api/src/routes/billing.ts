@@ -1069,6 +1069,28 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
         WHERE a.invoice_id = $1 AND p.status = 'posted' ORDER BY p.received_on, a.id`,
       [id],
     );
+    const credits = await app.pool.query<{
+      memo_date: string;
+      memo_number: string;
+      amount: string;
+    }>(
+      `SELECT to_char(m.memo_date, 'YYYY-MM-DD') AS memo_date, m.memo_number, c.amount
+         FROM billing.credit_application c JOIN billing.credit_memo m ON m.id = c.credit_memo_id
+        WHERE c.invoice_id = $1 AND m.status = 'posted' ORDER BY m.memo_date, c.id`,
+      [id],
+    );
+    const received = [
+      ...pays.rows.map((p) => ({
+        date: p.received_on,
+        label: `${p.method}${p.reference ? ` ${p.reference}` : ""}`,
+        amount: p.amount,
+      })),
+      ...credits.rows.map((c) => ({
+        date: c.memo_date,
+        label: `credit memo ${c.memo_number}`,
+        amount: c.amount,
+      })),
+    ].sort((x, y) => x.date.localeCompare(y.date));
     const pdf = await renderInvoicePdf({
       seller: sellerFromEnv(),
       status: inv.status,
@@ -1099,11 +1121,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       subtotal: inv.subtotal,
       taxTotal: inv.taxTotal,
       total: inv.total,
-      payments: pays.rows.map((p) => ({
-        date: p.received_on,
-        label: `${p.method}${p.reference ? ` ${p.reference}` : ""}`,
-        amount: p.amount,
-      })),
+      payments: received,
       amountPaid: inv.amountPaid,
     });
     const name = inv.invoiceNumber === null ? `draft-${inv.id}` : String(inv.invoiceNumber);

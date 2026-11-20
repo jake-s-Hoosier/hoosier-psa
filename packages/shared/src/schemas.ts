@@ -913,3 +913,88 @@ export const paymentListQuerySchema = paginationSchema.extend({
 });
 
 export type PaymentCreate = z.input<typeof paymentCreateSchema>;
+
+// ---- Credit memos (docs/05) ----
+
+export interface CreditMemoLine {
+  id: number;
+  lineNo: number;
+  sourceLineId: number | null;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  amount: string;
+  taxable: boolean;
+}
+
+export interface CreditApplication {
+  id: number;
+  invoiceId: number;
+  invoiceNumber: number | null;
+  amount: string;
+}
+
+export interface CreditMemo {
+  id: number;
+  companyId: number;
+  company: string;
+  sourceInvoiceId: number | null;
+  sourceInvoiceNumber: number | null;
+  memoNumber: number;
+  status: "posted" | "void";
+  memoDate: string;
+  reason: string;
+  taxCode: string | null;
+  taxRatePct: string;
+  taxExempt: boolean;
+  subtotal: string;
+  taxTotal: string;
+  total: string;
+  voidedAt: string | null;
+  voidReason: string | null;
+  /** What has been applied to invoices; zero once the memo is void. */
+  appliedAmount: string;
+  /** Credit still on account. */
+  unappliedAmount: string;
+  applications: CreditApplication[];
+  lines?: CreditMemoLine[];
+}
+
+export const creditMemoLineInputSchema = z.object({
+  description: z.string().trim().min(1).max(500),
+  quantity: z.number().positive().max(1_000_000),
+  unitPrice: z.number().min(0).max(100_000_000),
+  taxable: z.boolean().default(false),
+  /** The invoice line this credits, for the record. */
+  sourceLineId: idSchema.optional(),
+});
+
+export const creditMemoCreateSchema = z.object({
+  companyId: idSchema,
+  /** The invoice being corrected; its tax is copied, and the memo cannot exceed it. */
+  sourceInvoiceId: idSchema.optional(),
+  memoDate: isoDate,
+  reason: z.string().trim().min(3).max(500),
+  lines: z.array(creditMemoLineInputSchema).min(1).max(200),
+  /** Invoices to credit now; anything left over stays as credit on account. */
+  applications: z
+    .array(z.object({ invoiceId: idSchema, amount: z.number().positive().max(100_000_000) }))
+    .max(50)
+    .default([]),
+});
+
+export const creditMemoApplySchema = z.object({
+  invoiceId: idSchema,
+  amount: z.number().positive().max(100_000_000),
+});
+
+export const creditMemoVoidSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+
+export const creditMemoListQuerySchema = paginationSchema.extend({
+  companyId: idSchema.optional(),
+  invoiceId: idSchema.optional(),
+  /** unapplied = still has credit on account */
+  state: z.enum(["posted", "void", "unapplied", "all"]).default("posted"),
+});
+
+export type CreditMemoCreate = z.input<typeof creditMemoCreateSchema>;

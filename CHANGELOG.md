@@ -10,6 +10,18 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Credit memos. Migration 0017: `billing.credit_memo`, `credit_memo_line` and `credit_application`. A memo is issued
+  for a customer (optionally against one of their invoices, whose tax it copies and whose total it cannot exceed across
+  all its memos), takes its number from the same gap-free series as invoices (as in ConnectWise, where a credit memo is
+  an invoice with a negative total), is immutable once issued, and is voided rather than deleted. It is applied to the
+  customer's open invoices exactly like a payment; whatever is not applied stays as credit on account to apply later.
+  One SQL function, `billing.refresh_invoice_paid`, now sets an invoice's paid amount and status from its payments and
+  its credits together, and the payment guard counts credits too. API under `/api/v1/credit-memos`
+  (`billing.credit.read`, `billing.credit.write`). New Credit memos tab on the Billing screen, and on each invoice an
+  "Issue credit memo" dialog (pick lines and quantities, or add another credit), the credits applied to it with Take
+  back, and any credit on account that can pay it. Credits appear on the invoice PDF. Not yet sent to QuickBooks
+  (`CreditMemoAdd` comes with the export queue). Time and charges on a credited invoice are not released; to rebill
+  them, void the invoice instead.
 - Invoice PDF. `GET /api/v1/billing/invoices/:id/pdf` (billing.invoice.read) draws a letter-size invoice: seller header,
   bill-to with the customer's billing address, lines, tax, total, payments received and balance due, repeated column
   headings and page numbers on long invoices, and a DRAFT, VOID or PAID watermark. "Open PDF" or "Preview PDF" on the

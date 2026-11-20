@@ -1,5 +1,6 @@
 import type { BillingRun, BillingRunPreview, Invoice, InvoiceLine } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
+import { CreditMemosTab, InvoiceCredits } from "./CreditUI";
 import { InvoicePayments, PaymentsTab } from "./PaymentsUI";
 import {
   type RunTarget,
@@ -61,7 +62,7 @@ const monthLabel = (m: string) =>
     timeZone: "UTC",
   });
 
-type Tab = "runs" | "invoices" | "payments";
+type Tab = "runs" | "invoices" | "payments" | "credits";
 
 export function BillingPage(props: { can: (key: string) => boolean; routeId: number | null }) {
   const [tab, setTab] = useState<Tab>(props.routeId ? "invoices" : "runs");
@@ -79,6 +80,7 @@ export function BillingPage(props: { can: (key: string) => boolean; routeId: num
               "runs",
               "invoices",
               ...(props.can("billing.payment.read") ? (["payments"] as const) : []),
+              ...(props.can("billing.credit.read") ? (["credits"] as const) : []),
             ] as const
           ).map((t) => (
             <button
@@ -92,7 +94,13 @@ export function BillingPage(props: { can: (key: string) => boolean; routeId: num
                 if (props.routeId) navigate("/billing");
               }}
             >
-              {t === "runs" ? "Billing runs" : t === "invoices" ? "Invoices" : "Payments"}
+              {t === "runs"
+                ? "Billing runs"
+                : t === "invoices"
+                  ? "Invoices"
+                  : t === "payments"
+                    ? "Payments"
+                    : "Credit memos"}
             </button>
           ))}
         </div>
@@ -100,6 +108,7 @@ export function BillingPage(props: { can: (key: string) => boolean; routeId: num
       {tab === "runs" && <RunsTab can={props.can} />}
       {tab === "invoices" && <InvoicesTab can={props.can} routeId={props.routeId} />}
       {tab === "payments" && <PaymentsTab can={props.can} />}
+      {tab === "credits" && <CreditMemosTab can={props.can} />}
     </>
   );
 }
@@ -774,6 +783,7 @@ function InvoicePanel(props: {
         </tfoot>
       </table>
       <InvoicePayments invoice={inv} can={props.can} onChanged={() => changed()} />
+      <InvoiceCredits invoice={inv} can={props.can} onChanged={() => changed()} />
       <div className="field-row end">
         {canEdit && (
           <>

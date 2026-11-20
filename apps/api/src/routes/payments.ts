@@ -105,18 +105,9 @@ async function load(q: Q, id: number): Promise<Payment> {
   return (await toPayments(q, rows))[0] as Payment;
 }
 
-/** An invoice's paid amount and status follow its live applications. Draft and void invoices are left alone. */
+/** An invoice's paid amount and status follow its live payments and credit memos (one SQL function does both). */
 async function recompute(client: pg.PoolClient, invoiceId: number): Promise<void> {
-  await client.query(
-    `UPDATE billing.invoice i
-        SET amount_paid = s.paid,
-            status = CASE WHEN s.paid >= i.total THEN 'paid' WHEN s.paid > 0 THEN 'partially_paid' ELSE 'posted' END
-       FROM (SELECT COALESCE(sum(a.amount), 0) AS paid
-               FROM payments.payment_application a JOIN payments.payment p ON p.id = a.payment_id
-              WHERE a.invoice_id = $1 AND p.status = 'posted') s
-      WHERE i.id = $1 AND i.status NOT IN ('draft', 'void')`,
-    [invoiceId],
-  );
+  await client.query("SELECT billing.refresh_invoice_paid($1)", [invoiceId]);
 }
 
 /** Applies part of a payment to an invoice, with messages a person can act on. */
