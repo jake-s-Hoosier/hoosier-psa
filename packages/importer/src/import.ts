@@ -1,7 +1,9 @@
 import { type EnvironmentName, assertSafeTarget, checkWriteAccess, readMarker } from "@hoosier/db";
 import { phoneExtension, toE164 } from "@hoosier/shared";
 import type pg from "pg";
+import { BILLING_METHODS, clean, num } from "./mappings.js";
 import { ImportReport } from "./report.js";
+import { importSalesAndProjects } from "./sales-projects.js";
 
 /** Environments the importer may write to. Production is populated only by the cutover procedure (M6). */
 export const IMPORT_TARGETS: readonly EnvironmentName[] = ["development", "test", "uat", "shadow"];
@@ -27,21 +29,11 @@ export interface Reconciliation {
   tickets: { source: number; target: number };
   timeEntries: { source: number; target: number };
   timeActualHours: { source: number; target: number };
+  opportunities: { source: number; target: number };
+  projects: { source: number; target: number };
+  phases: { source: number; target: number };
 }
 
-const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
-const clean = (v: string | null | undefined): string | null => {
-  const t = v?.trim();
-  return t ? t : null;
-};
-
-/** CW billing methods (as the warehouse spells them) to ours. */
-const BILLING_METHODS: Record<string, string> = {
-  ActualRates: "actual_rates",
-  FixedFee: "fixed_fee",
-  NotToExceed: "not_to_exceed",
-  OverrideRate: "override_rate",
-};
 const BILLABLE: Record<string, string> = {
   Billable: "billable",
   DoNotBill: "do_not_bill",
@@ -94,6 +86,7 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
     });
     await importTicketNotes(source, client, report, { members, tickets });
     await importTimeEntries(source, client, report, { members, companies });
+    await importSalesAndProjects(source, client, report, { members, companies, sites, contacts });
     await resetSequences(source, client);
     const reconciliation = await reconcile(source, client);
 
@@ -1193,13 +1186,25 @@ async function importTimeEntries(
  * skipped CW record's number is never reused by a new native record (ADR 0003).
  */
 async function resetSequences(src: pg.Pool, db: pg.PoolClient): Promise<void> {
-  const m = await src.query<{ tickets: string; time_entries: string }>(
+  const m = await src.query<{
+    tickets: string;
+    time_entries: string;
+    opportunities: string;
+    projects: string;
+    phases: string;
+  }>(
     `SELECT (SELECT COALESCE(max(id), 0) FROM production.service_tickets) AS tickets,
-            (SELECT COALESCE(max(id), 0) FROM production.time_entries) AS time_entries`,
+            (SELECT COALESCE(max(id), 0) FROM production.time_entries) AS time_entries,
+            (SELECT COALESCE(max(id), 0) FROM production.opportunities) AS opportunities,
+            (SELECT COALESCE(max(id), 0) FROM production.projects) AS projects,
+            (SELECT COALESCE(max(phase_id), 0) FROM production.project_phases) AS phases`,
   );
   const sourceMax: Record<string, number> = {
     "service.ticket": Number(m.rows[0]?.tickets),
     "timekeeping.time_entry": Number(m.rows[0]?.time_entries),
+    "sales.opportunity": Number(m.rows[0]?.opportunities),
+    "project.project": Number(m.rows[0]?.projects),
+    "project.phase": Number(m.rows[0]?.phases),
   };
   for (const [table, srcMax] of Object.entries(sourceMax)) {
     await db.query(
@@ -1212,13 +1217,33 @@ async function resetSequences(src: pg.Pool, db: pg.PoolClient): Promise<void> {
 }
 
 async function reconcile(src: pg.Pool, db: pg.PoolClient): Promise<Reconciliation> {
-  const s = await src.query<{ tickets: string; te: string; hours: string }>(
-    `SELECT (SELECT count(*) FROM production.service_tickets) AS tickets,
+  const s = await src.query<{
+    tickets: string;
+    te: string;
+    hours: string;
+    opps: string;
+    projects: string;
+    phases: string;
+  }>(
+    `SELECT (SELECT count(*) FROM production.opportunities) AS opps,
+            (SELECT count(*) FROM production.projects) AS projects,
+            (SELECT count(*) FROM production.project_phases) AS phases,
+            (SELECT count(*) FROM production.service_tickets) AS tickets,
             (SELECT count(*) FROM production.time_entries) AS te,
             (SELECT COALESCE(sum(actual_hours), 0) FROM production.time_entries) AS hours`,
   );
-  const t = await db.query<{ tickets: string; te: string; hours: string }>(
-    `SELECT (SELECT count(*) FROM service.ticket WHERE legacy_cw_ticket_id IS NOT NULL) AS tickets,
+  const t = await db.query<{
+    tickets: string;
+    te: string;
+    hours: string;
+    opps: string;
+    projects: string;
+    phases: string;
+  }>(
+    `SELECT (SELECT count(*) FROM sales.opportunity WHERE legacy_cw_opportunity_id IS NOT NULL) AS opps,
+            (SELECT count(*) FROM project.project WHERE legacy_cw_project_id IS NOT NULL) AS projects,
+            (SELECT count(*) FROM project.phase WHERE legacy_cw_phase_id IS NOT NULL) AS phases,
+            (SELECT count(*) FROM service.ticket WHERE legacy_cw_ticket_id IS NOT NULL) AS tickets,
             (SELECT count(*) FROM timekeeping.time_entry WHERE legacy_cw_time_entry_id IS NOT NULL) AS te,
             (SELECT COALESCE(sum(actual_hours), 0) FROM timekeeping.time_entry WHERE legacy_cw_time_entry_id IS NOT NULL) AS hours`,
   );
@@ -1228,5 +1253,8 @@ async function reconcile(src: pg.Pool, db: pg.PoolClient): Promise<Reconciliatio
     tickets: { source: Number(a?.tickets), target: Number(b?.tickets) },
     timeEntries: { source: Number(a?.te), target: Number(b?.te) },
     timeActualHours: { source: Number(a?.hours), target: Number(b?.hours) },
+    opportunities: { source: Number(a?.opps), target: Number(b?.opps) },
+    projects: { source: Number(a?.projects), target: Number(b?.projects) },
+    phases: { source: Number(a?.phases), target: Number(b?.phases) },
   };
 }

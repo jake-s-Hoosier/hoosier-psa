@@ -10,6 +10,10 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Importer: sales stages, opportunities, projects and project phases from the ConnectWise mirror, with ids preserved,
+  won/lost taken from the CW opportunity status, numbered project statuses mapped, phases ordered by WBS code, and
+  every open fixed-fee project listed because the warehouse has no fee amount. Re-runnable; the reconciliation now
+  also compares opportunity, project and phase counts. Still read-only on the mirror and never writes to production.
 - Purchasing: purchase orders to vendors (permissions `procurement.read`, `procurement.write`, `procurement.receive`).
   Draft, mark as ordered, receive in parts with packing slip and serial numbers, close short or cancel. A PO can be
   tied to a project, sales order or ticket; the project margin report shows vendor cost received and still on order.

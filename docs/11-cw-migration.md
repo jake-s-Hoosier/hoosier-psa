@@ -45,6 +45,9 @@ happens in dev or in clearly marked test records that the nightly re-import remo
 | `time_entries.charge_to_type` | `time_entry.charge_type` | `ServiceTicket`/`ProjectTicket`/other mapped; `billable_option` mapped to `billable` values |
 | `time_entries.hourly_rate` | `bill_rate` snapshot | `cost_rate` from member cost at entry date |
 | `members.inactive_flag` | `iam.member.is_active` | `identifier` kept for traceability |
+| `opportunities` (+ stage and status names) | `sales.opportunity`, `sales.stage` | Ids preserved. CW keeps won and lost in the *status*, not the stage: `Won` goes to the Won stage; `Lost - *`, `Disqualified - *`, `Spam`, `Residential Lead`, `Sent to Service` and anything in the `10. Dead` stage go to Lost with the CW status kept as the lost reason. Everything else keeps its CW stage (stage names kept, sort order from the leading number, probability set per stage). The starter stages are deactivated unless in use. Created date is `date_became_lead`; owner is the primary sales rep; negative totals are left empty. |
+| `projects` | `project.project` | Ids preserved. Status from the numbered CW status (`1.x` waiting on parts or paperwork becomes planning; `2`-`3` open; `5` on hold; `7` ready to invoice; `8` closed; `9` canceled). Manager matched by name to a staff member. `* MUST CHANGE` project types are left empty. No billing method becomes actual rates. |
+| `project_phases` | `project.phase` | Ids preserved. Sub-phases are flattened into the project's list; ordered by WBS code as numbers (2 before 10); a repeated name gets its WBS code or id added. Only separately billed phases keep a billing method. |
 | `agreements`, `agreement_additions` | `agreement.*` (M2) | cancelled and effective dates preserved |
 | `invoices`, `invoice_line_items` | `billing.*` (M2) | invoice numbers preserved; mirror has partial line detail, so history before cutover is imported at invoice level where lines are missing |
 
@@ -55,6 +58,13 @@ happens in dev or in clearly marked test records that the nightly re-import remo
 - 148 projects unlinked to quotes (123 pre-CPQ legacy, 25 without an opportunity); imported with no
   quote link and flagged.
 - `po_amount` on projects is unreliable and is not imported as revenue.
+- **The warehouse has no fixed-fee amount for projects or phases.** Imported fixed-fee projects have an empty fee; every
+  one that is still open (not closed or canceled) is listed as an import exception so the amount is entered by hand
+  before the project is billed. Closed history does not need it.
+- The warehouse project-to-opportunity link is not kept: a project has no opportunity column in the PSA (the link
+  lives on the sales order that created it). Imported history is joined by customer and date if needed.
+- Project tickets (`project_tickets`) are not imported yet, so project time entries keep their ticket reference but
+  project tickets do not appear until that step is built.
 - Time entries and tickets referencing deleted or merged companies, contacts and members.
 
 ## Reconciliation reports (built alongside each module)

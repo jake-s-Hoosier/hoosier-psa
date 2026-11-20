@@ -2,6 +2,16 @@ import { ensureMarker, migrateUp } from "@hoosier/db";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prioritySortOrder, runImport } from "./import.js";
+import {
+  compareWbs,
+  isDeadStage,
+  mapProjectStatus,
+  opportunityOutcome,
+  stageNumber,
+  stageProbability,
+  stageSortOrder,
+  wbsSortKey,
+} from "./mappings.js";
 import { createSourcePool } from "./source.js";
 
 describe("prioritySortOrder", () => {
@@ -9,6 +19,59 @@ describe("prioritySortOrder", () => {
     expect(prioritySortOrder("Priority 1 - Critical")).toBe(1);
     expect(prioritySortOrder("Priority 4 - Low")).toBe(4);
     expect(prioritySortOrder("Normal")).toBe(9);
+  });
+});
+
+describe("mappings", () => {
+  it("reads stage numbers, ordering and the Dead stage", () => {
+    expect(stageNumber("7. Ready for Proposal")).toBe(7);
+    expect(stageNumber("10. Dead")).toBe(10);
+    expect(stageNumber("Parked")).toBeNull();
+    expect(stageSortOrder("10. Dead")).toBe(100);
+    expect(stageSortOrder("Parked")).toBe(500);
+    expect(isDeadStage("10. Dead")).toBe(true);
+    expect(isDeadStage("9. Parked")).toBe(false);
+    expect(stageProbability("5. Demo")).toBe(30);
+    expect(stageProbability("Parked")).toBe(0);
+  });
+
+  it("classifies opportunity statuses", () => {
+    expect(opportunityOutcome("Won").kind).toBe("won");
+    expect(opportunityOutcome("Lost - Competitor")).toMatchObject({
+      kind: "lost",
+      reason: "Lost - Competitor",
+    });
+    expect(opportunityOutcome("Disqualified - Budget").kind).toBe("lost");
+    expect(opportunityOutcome("Open - Existing Customer").kind).toBe("open");
+    expect(opportunityOutcome("Parked").kind).toBe("open");
+    expect(opportunityOutcome(null)).toMatchObject({ kind: "open", unrecognised: false });
+    expect(opportunityOutcome("Something new")).toMatchObject({ kind: "open", unrecognised: true });
+  });
+
+  it("maps every CW project status in use", () => {
+    const cases: Array<[string, string]> = [
+      ["8 - Closed", "closed"],
+      ["7 - Closed - Ready for Invoice", "ready_to_invoice"],
+      ["9 - Customer Canceled", "canceled"],
+      ["1 - Parts Needed", "planning"],
+      ["1.25 - Parts Ordered", "planning"],
+      ["1.85 Waiting on paperwork", "planning"],
+      ["1.95 Waiting on Payment", "planning"],
+      ["2 - NEEDS SCHEDULED", "open"],
+      ["2.5 - Scheduled", "open"],
+      ["3 - In Progress", "open"],
+      ["5 - On-Hold", "on_hold"],
+    ];
+    for (const [cw, ours] of cases)
+      expect(mapProjectStatus(cw)).toEqual({ status: ours, unrecognised: false });
+    expect(mapProjectStatus("???").unrecognised).toBe(true);
+  });
+
+  it("sorts WBS codes as numbers", () => {
+    const sorted = ["10", "1.10", "1.9", "2", "1"].sort((a, b) =>
+      compareWbs(wbsSortKey(a), wbsSortKey(b)),
+    );
+    expect(sorted).toEqual(["1", "1.9", "1.10", "2", "10"]);
   });
 });
 
@@ -152,6 +215,45 @@ suite("import (integration)", () => {
         (902, 10, NULL, 'ChargeCode', 2, '2026-01-06 08:00', '2026-01-06 07:00', 1, 1, 'NoCharge', 0, 'bad times', '2026-01-06'),
         (903, 10, 503, 'ServiceTicket', 1, NULL, NULL, 1, 1, 'Billable', 100, 'ticket was skipped', '2026-01-09'),
         (904, 999, NULL, NULL, 1, NULL, NULL, 1, 1, 'Billable', 100, 'orphan company', '2026-01-09');
+
+      CREATE TABLE production.opportunities (id int PRIMARY KEY, name text, company_id int, stage_id int,
+        stage_name text, status_name text, primary_sales_rep_id int, contact_id int, site_id int,
+        expected_close_date date, date_became_lead date, closed_date date, last_updated timestamp,
+        total_sales numeric, source_name text, source text, notes text);
+      CREATE TABLE production.projects (id int PRIMARY KEY, name text, status text, actual_start date,
+        actual_end date, estimated_start date, estimated_end date, budget_hours numeric, manager_name text,
+        company_id int, last_updated timestamp, project_type text, billing_method text, site_id int);
+      CREATE TABLE production.project_phases (phase_id int PRIMARY KEY, project_id int, description text,
+        parent_phase_id int, wbs_code text, bill_separately_flag boolean, billing_method text,
+        scheduled_start date, scheduled_end date, budget_hours numeric, notes text);
+      INSERT INTO production.opportunities VALUES
+        (1, 'Open lead', 10, 3, '3. Contact Made', 'Open - New Lead', 1, 200, 7, '2026-03-01', '2026-01-10', NULL, '2026-01-11 12:00', 5000, 'Referral', NULL, 'call back'),
+        (2, 'Won job', 10, 8, '7. Ready for Proposal', 'Won', 1, NULL, NULL, NULL, '2025-11-01', '2026-02-01', '2026-02-02 09:00', 12000.50, NULL, 'Web', NULL),
+        (3, 'Lost, quiet', 10, 8, '7. Ready for Proposal', 'Lost - No Customer Response', 1, NULL, NULL, NULL, NULL, '2026-02-15', '2026-02-15 09:00', 800, NULL, NULL, NULL),
+        (4, 'Dead but open', 10, 14, '10. Dead', 'Open - New Lead', NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-12 09:00', NULL, NULL, NULL, NULL),
+        (5, 'Spam entry', 10, 2, '1. New', 'Spam', NULL, NULL, NULL, NULL, NULL, NULL, '2026-01-20 10:00', NULL, NULL, NULL, NULL),
+        (6, 'Negative total', 10, 2, '1. New', 'Open - New Lead', NULL, NULL, NULL, NULL, NULL, NULL, NULL, -50, NULL, NULL, NULL),
+        (7, 'No company', 14, 2, '1. New', 'Open - New Lead', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL),
+        (8, 'Rep not imported', 10, 2, '1. New', 'Open - New Lead', 99, NULL, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL),
+        (9, 'Odd status', 10, 3, '3. Contact Made', 'Pending Review', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL),
+        (10, '   ', 10, 2, '1. New', 'Open - New Lead', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, NULL, NULL, NULL);
+      INSERT INTO production.projects VALUES
+        (100, 'Camera install', '3 - In Progress', '2026-01-05', NULL, '2026-01-05', '2026-03-01', 40, 'Jane Smith', 10, NULL, 'Installation - CCTV', 'FixedFee', 7),
+        (101, 'Old job', '8 - Closed', '2025-01-01', '2025-02-01', NULL, NULL, 8, 'Accounting Dept', 10, '2025-03-01 08:00', 'Installation - Access Control', 'ActualRates', NULL),
+        (102, 'Canceled job', '9 - Customer Canceled', NULL, NULL, NULL, NULL, NULL, NULL, 10, '2025-05-05 09:00', '* MUST CHANGE', NULL, NULL),
+        (103, 'Waiting on parts', '1.25 - Parts Ordered', NULL, NULL, NULL, NULL, NULL, NULL, 10, NULL, NULL, 'FixedFee', NULL),
+        (104, 'Ready to bill', '7 - Closed - Ready for Invoice', '2026-01-02', '2026-01-20', NULL, NULL, NULL, NULL, 10, NULL, NULL, 'FixedFee', NULL),
+        (105, 'On hold', '5 - On-Hold', NULL, NULL, NULL, NULL, NULL, NULL, 10, NULL, NULL, 'OverrideRate', NULL),
+        (106, 'Mystery status', 'Whatever', NULL, NULL, NULL, NULL, NULL, NULL, 10, NULL, NULL, 'ActualRates', NULL),
+        (107, 'Bad dates', '2 - NEEDS SCHEDULED', NULL, NULL, '2026-05-01', '2026-04-01', NULL, NULL, 10, NULL, NULL, 'NotToExceed', NULL),
+        (108, 'Company missing', '2 - NEEDS SCHEDULED', NULL, NULL, NULL, NULL, NULL, NULL, 999, NULL, NULL, 'ActualRates', NULL);
+      INSERT INTO production.project_phases VALUES
+        (1000, 100, 'Rough-in', NULL, '1', false, 'FixedFee', '2026-01-05', '2026-01-12', 10, 'run cable'),
+        (1001, 100, 'Trim', NULL, '2', true, 'FixedFee', NULL, NULL, 5, NULL),
+        (1002, 100, 'Rough-in', 1000, '1.1', false, NULL, NULL, NULL, 2, NULL),
+        (1003, 100, 'Commissioning', NULL, '10', false, NULL, NULL, NULL, 3, NULL),
+        (1004, 108, 'Under a skipped project', NULL, '1', false, NULL, NULL, NULL, NULL, NULL),
+        (1005, 101, 'Closed phase', NULL, '1', true, 'ActualRates', '2025-01-05', '2025-01-01', NULL, NULL);
     `);
     source = createSourcePool(sourceUrl, targetUrl);
 
@@ -408,6 +510,183 @@ suite("import (integration)", () => {
     );
     // CW ticket 503 was skipped, but its number is still reserved.
     expect(Number(next.rows[0]?.id)).toBe(504);
+  });
+
+  it("imports stages, opportunities, projects and phases with the rules in docs/11", async () => {
+    const { report, reconciliation } = await run();
+    expect(report.counts.opportunities).toMatchObject({ read: 10, written: 8, skipped: 2 });
+    expect(report.counts.projects).toMatchObject({ read: 9, written: 8, skipped: 1 });
+    expect(report.counts.phases).toMatchObject({ read: 6, written: 5, skipped: 1 });
+    expect(reconciliation.opportunities).toEqual({ source: 10, target: 8 });
+    expect(reconciliation.projects).toEqual({ source: 9, target: 8 });
+    expect(reconciliation.phases).toEqual({ source: 6, target: 5 });
+
+    // CW stages come across by their own names; Dead is an outcome, and the starter stages step aside.
+    const stages = (
+      await target.query<{ name: string; sort_order: number; probability: number }>(
+        "SELECT name, sort_order, probability FROM sales.stage WHERE legacy_cw_stage_id IS NOT NULL ORDER BY sort_order",
+      )
+    ).rows;
+    expect(stages).toEqual([
+      { name: "1. New", sort_order: 10, probability: 10 },
+      { name: "3. Contact Made", sort_order: 30, probability: 10 },
+      { name: "7. Ready for Proposal", sort_order: 70, probability: 50 },
+    ]);
+    expect(await count("SELECT count(*) AS n FROM sales.stage WHERE name = '10. Dead'")).toBe(0);
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM sales.stage WHERE legacy_cw_stage_id IS NULL AND NOT is_won AND NOT is_lost AND is_active",
+      ),
+    ).toBe(0);
+
+    const opp = async (id: number) =>
+      (
+        await target.query(
+          `SELECT o.*, s.name AS stage, s.is_won, s.is_lost FROM sales.opportunity o
+             JOIN sales.stage s ON s.id = o.stage_id WHERE o.id = $1`,
+          [id],
+        )
+      ).rows[0];
+    const open = await opp(1);
+    expect(open).toMatchObject({
+      stage: "3. Contact Made",
+      is_won: false,
+      is_lost: false,
+      source: "Referral",
+      notes: "call back",
+    });
+    expect(open.closed_at).toBeNull();
+    expect(Number(open.expected_amount)).toBe(5000);
+    expect(open.owner_member_id).not.toBeNull();
+    expect(open.contact_id).not.toBeNull();
+    expect(open.site_id).not.toBeNull();
+    // Created when it became a lead, read as Indianapolis midnight (EST).
+    expect(new Date(open.created_at).toISOString()).toBe("2026-01-10T05:00:00.000Z");
+    expect(await opp(2)).toMatchObject({ is_won: true, source: "Web" });
+    expect(Number((await opp(2)).expected_amount)).toBe(12000.5);
+    expect((await opp(2)).closed_at).not.toBeNull();
+    expect(await opp(3)).toMatchObject({
+      is_lost: true,
+      lost_reason: "Lost - No Customer Response",
+    });
+    expect(await opp(4)).toMatchObject({ is_lost: true, lost_reason: "Dead" });
+    expect(await opp(5)).toMatchObject({ is_lost: true, lost_reason: "Spam" });
+    expect((await opp(5)).closed_at).not.toBeNull(); // falls back to the last update
+    expect((await opp(6)).expected_amount).toBeNull();
+    expect((await opp(8)).owner_member_id).toBeNull();
+    expect(await opp(9)).toMatchObject({ is_won: false, is_lost: false, stage: "3. Contact Made" });
+    expect(await count("SELECT count(*) AS n FROM sales.opportunity WHERE id IN (7, 10)")).toBe(0);
+
+    const project = async (id: number) =>
+      (await target.query("SELECT * FROM project.project WHERE id = $1", [id])).rows[0];
+    expect(await project(100)).toMatchObject({
+      status: "open",
+      billing_method: "fixed_fee",
+      project_type: "Installation - CCTV",
+    });
+    expect((await project(100)).billing_amount).toBeNull();
+    expect((await project(100)).manager_member_id).not.toBeNull();
+    expect((await project(100)).site_id).not.toBeNull();
+    expect(Number((await project(100)).budget_hours)).toBe(40);
+    expect(await project(101)).toMatchObject({ status: "closed", billing_method: "actual_rates" });
+    expect((await project(101)).closed_at).not.toBeNull();
+    expect((await project(101)).manager_member_id).toBeNull(); // "Accounting Dept" is not a person
+    expect(await project(102)).toMatchObject({
+      status: "canceled",
+      billing_method: "actual_rates",
+      project_type: null,
+    });
+    expect((await project(103)).status).toBe("planning");
+    expect((await project(104)).status).toBe("ready_to_invoice");
+    expect((await project(105)).status).toBe("on_hold");
+    expect((await project(105)).billing_method).toBe("override_rate");
+    expect((await project(106)).status).toBe("open");
+    expect((await project(107)).estimated_end).toBeNull(); // end before start is dropped
+    expect(await count("SELECT count(*) AS n FROM project.project WHERE id = 108")).toBe(0);
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM project.project WHERE po_amount IS NOT NULL OR po_number IS NOT NULL",
+      ),
+    ).toBe(0);
+
+    // Phases: ids kept, sub-phase flattened, duplicate name made unique, ordered by WBS number (2 before 10).
+    const phases = (
+      await target.query<{
+        id: string;
+        name: string;
+        sort_order: number;
+        bill_separately: boolean;
+        billing_method: string | null;
+      }>(
+        "SELECT id, name, sort_order, bill_separately, billing_method FROM project.phase WHERE project_id = 100 ORDER BY sort_order",
+      )
+    ).rows;
+    expect(phases.map((p) => [Number(p.id), p.name, p.sort_order])).toEqual([
+      [1000, "Rough-in", 10],
+      [1002, "Rough-in (1.1)", 20],
+      [1001, "Trim", 30],
+      [1003, "Commissioning", 40],
+    ]);
+    expect(phases.find((p) => Number(p.id) === 1001)).toMatchObject({
+      bill_separately: true,
+      billing_method: "fixed_fee",
+    });
+    expect(phases.find((p) => Number(p.id) === 1000)?.billing_method).toBeNull(); // only separate phases carry a method
+    expect(
+      (await target.query("SELECT scheduled_end FROM project.phase WHERE id = 1005")).rows[0]
+        .scheduled_end,
+    ).toBeNull();
+
+    // What a person has to finish by hand is listed, not hidden.
+    const problems = report.summary().map((x) => `${x.entity}: ${x.problem}`);
+    expect(problems).toContain("opportunities: negative total sales; amount left empty");
+    expect(problems).toContain("opportunities: open status in the Dead stage; imported as lost");
+    expect(problems).toContain("opportunities: sales rep was not imported; no owner set");
+    expect(problems).toContain("projects: no billing method; set to actual rates");
+    expect(problems).toContain(
+      'projects: project type was the "MUST CHANGE" placeholder; left empty',
+    );
+    expect(problems).toContain(
+      "phases: sub-phase: hierarchy flattened into the project's phase list",
+    );
+    const exc = report.exceptions.filter(
+      (e) => e.entity === "projects" && /fee is not in the warehouse/.test(e.problem),
+    );
+    expect(exc.map((e) => e.sourceId).sort()).toEqual([100, 103, 104]);
+
+    // Numbering continues past the CW ids.
+    const nextProject = await target.query<{ id: string }>(
+      `INSERT INTO project.project (company_id, name)
+       SELECT id, 'native' FROM crm.company WHERE legacy_cw_company_id = 10 RETURNING id`,
+    );
+    expect(Number(nextProject.rows[0]?.id)).toBe(109);
+  });
+
+  it("sales and project import is idempotent and follows source changes", async () => {
+    const snapshot = async () => ({
+      opps: await count("SELECT count(*) AS n FROM sales.opportunity"),
+      stages: await count("SELECT count(*) AS n FROM sales.stage"),
+      projects: await count(
+        "SELECT count(*) AS n FROM project.project WHERE legacy_cw_project_id IS NOT NULL",
+      ),
+      phases: await count("SELECT count(*) AS n FROM project.phase"),
+    });
+    const before = await snapshot();
+    await srcAdmin.query("UPDATE production.opportunities SET status_name = 'Won' WHERE id = 1");
+    await srcAdmin.query(
+      "UPDATE production.projects SET status = '8 - Closed', actual_end = '2026-02-02' WHERE id = 100",
+    );
+    await run();
+    expect(await snapshot()).toEqual(before);
+    const o = (
+      await target.query(
+        "SELECT s.is_won FROM sales.opportunity o JOIN sales.stage s ON s.id = o.stage_id WHERE o.id = 1",
+      )
+    ).rows[0];
+    expect(o.is_won).toBe(true);
+    expect(
+      (await target.query("SELECT status FROM project.project WHERE id = 100")).rows[0].status,
+    ).toBe("closed");
   });
 
   it("is idempotent: a second run changes nothing and creates no duplicates", async () => {
