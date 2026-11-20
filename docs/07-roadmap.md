@@ -39,7 +39,7 @@ differences; QuickBooks receives and matches invoices with no manual fixes.
 
 ## M3. Dispatch and projects (about 6 weeks)
 
-- Schedule entries, dispatch board with unassigned queue, conflict detection, Outlook calendar sync, mobile technician view.
+- Schedule entries, dispatch board with unassigned queue, overlap flags: built. Still to do: Outlook calendar sync, drag-and-drop, mobile technician view.
 - Projects: phases, project tickets, budgets, billing methods (fixed fee, milestone, T&M), change orders, close-out analytics (post-mortems).
 - Light asset register at sites.
 

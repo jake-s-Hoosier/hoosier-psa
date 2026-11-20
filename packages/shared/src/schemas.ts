@@ -1556,3 +1556,99 @@ export const orderConvertSchema = z.object({
   phases: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
 });
 export type OrderConvert = z.input<typeof orderConvertSchema>;
+
+// ---- Dispatch ----
+
+export const scheduleKinds = ["ticket", "meeting", "time_off"] as const;
+export const scheduleStatuses = ["scheduled", "confirmed", "completed", "canceled"] as const;
+
+export interface ScheduleEntry {
+  id: number;
+  kind: (typeof scheduleKinds)[number];
+  ticketId: number | null;
+  ticketSummary: string | null;
+  companyId: number | null;
+  company: string | null;
+  siteId: number | null;
+  site: string | null;
+  projectId: number | null;
+  memberId: number;
+  member: string;
+  title: string | null;
+  startsAt: string;
+  endsAt: string;
+  status: (typeof scheduleStatuses)[number];
+  notes: string | null;
+}
+
+export interface UnassignedTicket {
+  id: number;
+  summary: string;
+  companyId: number;
+  company: string;
+  site: string | null;
+  priority: string;
+  priorityColor: string | null;
+  status: string;
+  requiredBy: string | null;
+  enteredAt: string;
+  projectId: number | null;
+}
+
+export interface DispatchBoard {
+  from: string;
+  to: string;
+  members: Array<{ id: number; name: string }>;
+  entries: ScheduleEntry[];
+  unassigned: UnassignedTicket[];
+}
+
+const isoTimestamp = z.string().datetime({ offset: true });
+
+export const dispatchBoardQuerySchema = z.object({
+  from: isoTimestamp,
+  to: isoTimestamp,
+});
+
+export const scheduleEntryCreateSchema = z
+  .object({
+    kind: z.enum(scheduleKinds).default("ticket"),
+    ticketId: idSchema.optional(),
+    memberId: idSchema,
+    title: z.string().trim().min(1).max(300).optional(),
+    startsAt: isoTimestamp,
+    endsAt: isoTimestamp,
+    notes: z.string().trim().max(5000).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.kind === "ticket" && !v.ticketId)
+      ctx.addIssue({ code: "custom", path: ["ticketId"], message: "Choose the ticket" });
+    if (v.kind !== "ticket" && !v.title)
+      ctx.addIssue({ code: "custom", path: ["title"], message: "Give it a title" });
+    if (v.kind !== "ticket" && v.ticketId)
+      ctx.addIssue({
+        code: "custom",
+        path: ["ticketId"],
+        message: "Only ticket visits link to a ticket",
+      });
+    if (new Date(v.endsAt) <= new Date(v.startsAt))
+      ctx.addIssue({
+        code: "custom",
+        path: ["endsAt"],
+        message: "The end must be after the start",
+      });
+  });
+export type ScheduleEntryCreate = z.input<typeof scheduleEntryCreateSchema>;
+
+export const scheduleEntryUpdateSchema = z
+  .object({
+    memberId: idSchema,
+    title: z.string().trim().min(1).max(300),
+    startsAt: isoTimestamp,
+    endsAt: isoTimestamp,
+    status: z.enum(scheduleStatuses),
+    notes: z.string().trim().max(5000).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type ScheduleEntryUpdate = z.infer<typeof scheduleEntryUpdateSchema>;

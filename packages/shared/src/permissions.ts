@@ -16,6 +16,8 @@ export const PERMISSIONS = {
   "timekeeping.time.write_all": "Edit anyone's time entries",
   "timekeeping.time.approve": "Approve time entries",
   "timekeeping.period.lock": "Lock and export pay periods",
+  "dispatch.read": "View the dispatch board and schedules",
+  "dispatch.write": "Schedule, move and cancel visits on the dispatch board",
   "sales.opportunity.read": "View opportunities, activities and linked quotes and designs",
   "sales.opportunity.write": "Create and change opportunities, activities and linked records",
   "sales.order.read": "View sales orders and billing milestones",
@@ -47,6 +49,8 @@ export function isPermissionKey(value: string): value is PermissionKey {
 export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
   Administrator: Object.keys(PERMISSIONS) as PermissionKey[],
   Manager: [
+    "dispatch.read",
+    "dispatch.write",
     "crm.company.read",
     "crm.company.write",
     "service.ticket.read",
@@ -74,6 +78,8 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "system.audit.read",
   ],
   Dispatcher: [
+    "dispatch.read",
+    "dispatch.write",
     "crm.company.read",
     "project.read",
     "service.ticket.read",
@@ -82,6 +88,7 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "timekeeping.time.write_own",
   ],
   Technician: [
+    "dispatch.read",
     "crm.company.read",
     "project.read",
     "service.ticket.read",

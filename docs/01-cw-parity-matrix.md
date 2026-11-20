@@ -15,7 +15,7 @@ Milestones are defined in [07-roadmap.md](07-roadmap.md).
 | Ticket resources and ownership | resources column on tickets | `service.ticket_resource`, `owner_member_id` | M1 | resources add/remove done |
 | Detailed time capture | time entries 43,423 | `timekeeping.time_entry`: timers, rate snapshots, approval, locking | M1 | schema |
 | Payroll hours export | spreadsheet + manual Justworks entry | Pay periods, overtime allocation, CSV export ([04](04-time-and-payroll.md)) | M1 | rules coded |
-| Dispatch / scheduling | schedule entries 77,315 | `dispatch.*`: schedule entries, board, calendar sync | M3 | planned |
+| Dispatch / scheduling | schedule entries 77,315 | `dispatch.*`: schedule entries, week board, unscheduled queue; calendar sync later | M3 | board built; calendar sync, drag-and-drop and phone view pending |
 | Project management | projects 2,162; phases 2,014; project tickets 4,450; project ticket notes 5,126 | `project.*`: phases, tickets, budgets, billing methods | M3 | planned |
 | Agreements / contracts | agreements 1,266; additions 828 | `agreement.*` ([05](05-billing-and-agreements.md)) | M2 | planned |
 | RMR billing | additions carry unit price, cost, margin | Billing runs from additions; cost-side margin tracking | M2 | planned |

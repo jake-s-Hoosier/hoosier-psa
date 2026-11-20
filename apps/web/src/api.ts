@@ -19,6 +19,7 @@ import type {
   ContactInput,
   CreditMemo,
   CreditMemoCreate,
+  DispatchBoard,
   ExternalEntityType,
   ExternalRef,
   ExternalRefCreate,
@@ -49,6 +50,9 @@ import type {
   SalesOrderLine,
   SalesOrderUpdate,
   SalesStage,
+  ScheduleEntry,
+  ScheduleEntryCreate,
+  ScheduleEntryUpdate,
   Site,
   SiteInput,
   Ticket,
@@ -845,3 +849,17 @@ export const addMilestone = (owner: MilestoneOwner, body: MilestoneInput) =>
   );
 export const deleteMilestone = (id: number) =>
   request<void>("DELETE", `/api/v1/sales/milestones/${id}`);
+
+// ---- Dispatch ----
+export const getDispatchBoard = (from: string, to: string, signal?: AbortSignal) =>
+  get<DispatchBoard>(
+    `/api/v1/dispatch/board?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    signal,
+  );
+export type ScheduleResult = { entry: ScheduleEntry; conflicts: ScheduleEntry[] };
+export const createScheduleEntry = (body: ScheduleEntryCreate) =>
+  request<ScheduleResult>("POST", "/api/v1/dispatch/entries", body);
+export const updateScheduleEntry = (id: number, body: ScheduleEntryUpdate) =>
+  request<ScheduleResult>("PATCH", `/api/v1/dispatch/entries/${id}`, body);
+export const deleteScheduleEntry = (id: number) =>
+  request<void>("DELETE", `/api/v1/dispatch/entries/${id}`);

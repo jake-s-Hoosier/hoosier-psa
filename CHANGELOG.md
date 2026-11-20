@@ -10,6 +10,12 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Dispatch board. Migration 0022: `dispatch.schedule_entry` puts a person on a ticket for a block of time, or marks a
+  meeting or time off. Week board with a row per field technician, an unscheduled queue of open tickets with no upcoming
+  visit (most urgent first), add, move, reassign, confirm, complete, cancel and remove. Scheduling someone adds them as a
+  ticket resource. Overlapping visits for the same person are allowed but flagged on the board and reported when saved.
+  New permissions `dispatch.read` (Manager, Dispatcher, Technician) and `dispatch.write` (Manager, Dispatcher).
+  Outlook sync, drag-and-drop and the phone view for technicians are still to come.
 - Sales orders and billing milestones (sales slice B). Migration 0021: `sales.sales_order` (from an opportunity; fixed
   fee, actual rates, not to exceed or override rate, with PO), `sales.sales_order_line` (budget and bill of materials,
   never charges), `sales.billing_milestone` (planned deposit and progress payments, by percent or dollars, never more

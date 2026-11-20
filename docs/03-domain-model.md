@@ -74,7 +74,7 @@ export queue with per-record QuickBooks identifiers and results. See [05](05-bil
 and [06](06-accounting-integrations.md).
 
 ### `dispatch`, `project` *(planned, milestone 3)*
-Schedule entries with no-overlap exclusion per resource (using `btree_gist`), calendar sync state;
+Schedule entries (a person on a ticket for a block of time, or a meeting or time off); overlaps for one person are allowed but reported and flagged, since dispatchers sometimes double-book on purpose; calendar sync state later;
 projects, phases, project tickets, budgets, billing methods (fixed fee, milestone, time and materials).
 
 ### `sales`, `procurement` *(planned, milestone 4)*

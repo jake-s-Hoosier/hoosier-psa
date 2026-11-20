@@ -5,6 +5,7 @@ import { AgreementsPage } from "./AgreementsPage";
 import { BillingPage } from "./BillingPage";
 import { CompaniesPage } from "./CompaniesPage";
 import { CompanyPage } from "./CompanyPage";
+import { DispatchPage } from "./DispatchPage";
 import { LoginPage } from "./LoginPage";
 import { MailPage } from "./MailPage";
 import { OpportunitiesPage } from "./OpportunitiesPage";
@@ -30,7 +31,7 @@ const NAV = [
   { id: "opportunities", label: "Opportunities", ready: true, perm: "sales.opportunity.read" },
   { id: "tickets", label: "Service tickets", ready: true, perm: "service.ticket.read" },
   { id: "time", label: "Time", ready: true, perm: "timekeeping.time.read_own" },
-  { id: "dispatch", label: "Dispatch", ready: false },
+  { id: "dispatch", label: "Dispatch", ready: true, perm: "dispatch.read" },
   { id: "projects", label: "Projects", ready: true, perm: "project.read" },
   { id: "agreements", label: "Agreements", ready: true, perm: "billing.agreement.read" },
   { id: "billing", label: "Billing", ready: true, perm: "billing.invoice.read" },
@@ -205,6 +206,9 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
           )}
           {page === "billing" && can("billing.invoice.read") && (
             <BillingPage can={can} routeId={route.id} />
+          )}
+          {page === "dispatch" && can("dispatch.read") && (
+            <DispatchPage can={can} lookups={lookups} />
           )}
           {page === "opportunities" && can("sales.opportunity.read") && (
             <OpportunitiesPage can={can} lookups={lookups} routeId={route.id} />
