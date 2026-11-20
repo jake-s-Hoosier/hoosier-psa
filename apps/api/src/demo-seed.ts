@@ -21,6 +21,7 @@ async function main(): Promise<void> {
     if (existing.rowCount)
       throw new Error("Database already has companies; refusing to add demo data");
 
+    await pool.query("BEGIN"); // one connection, so everything below is a single all-or-nothing load
     const one = async (sql: string, params: unknown[] = []): Promise<number> =>
       Number((await pool.query<{ id: string }>(sql, params)).rows[0]?.id);
     const q = (sql: string, params: unknown[] = []) => pool.query(sql, params);
@@ -223,7 +224,7 @@ async function main(): Promise<void> {
         "LAKEVIEW",
         "Alarm panel showing AC power trouble",
         "Intrusion Alarm",
-        "Critical",
+        "Emergency",
         "Scheduled",
         "akeene",
         "Phone",
@@ -356,9 +357,13 @@ async function main(): Promise<void> {
       );
       day++;
     }
+    await pool.query("COMMIT");
     console.log(
       `Demo data loaded: ${customers.length} companies, ${ticketIds.length} tickets, ${Object.keys(members).length} staff.`,
     );
+  } catch (e) {
+    await pool.query("ROLLBACK").catch(() => undefined);
+    throw e;
   } finally {
     await pool.end();
   }
