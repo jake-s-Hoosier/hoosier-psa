@@ -852,6 +852,7 @@ async function importTicketLookups(
       await src.query<{ status_id: number }>("SELECT status_id FROM production.board_statuses")
     ).rows.map((r) => r.status_id),
   );
+  const usedStatusNames = new Set<string>();
   for (const s of statuses.rows) {
     report.count("board statuses").read += 1;
     const boardId = l.boards.get(s.board_id);
@@ -867,6 +868,17 @@ async function importTicketLookups(
         "status missing from CW board_statuses; derived from tickets",
       );
     }
+    // CW allows two statuses with the same name on a board; ours does not. The later one gets its id appended.
+    let statusName = s.name;
+    if (usedStatusNames.has(`${boardId}|${statusName.toLowerCase()}`)) {
+      statusName = `${s.name} (${s.id})`;
+      report.except(
+        "board statuses",
+        s.id,
+        `duplicate name "${s.name}" on its board; renamed "${statusName}"`,
+      );
+    }
+    usedStatusNames.add(`${boardId}|${statusName.toLowerCase()}`);
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO service.board_status (board_id, name, sort_order, is_closed, is_active, legacy_cw_status_id)
        VALUES ($1,$2,$3,$4,$5,$6)
@@ -874,7 +886,7 @@ async function importTicketLookups(
          SET name = EXCLUDED.name, sort_order = EXCLUDED.sort_order,
              is_closed = EXCLUDED.is_closed, is_active = EXCLUDED.is_active
        RETURNING id`,
-      [boardId, s.name, s.sort_order, s.closed, !s.inactive, s.id],
+      [boardId, statusName, s.sort_order, s.closed, !s.inactive, s.id],
     );
     l.statuses.set(s.id, Number(rows[0]?.id));
     report.count("board statuses").written += 1;
@@ -900,14 +912,25 @@ async function importTicketLookups(
        FROM production.service_tickets WHERE type_id IS NOT NULL AND type_name IS NOT NULL AND board_id IS NOT NULL
       GROUP BY type_id ORDER BY 1`,
   );
+  const usedTypeNames = new Set<string>();
   for (const t of types.rows) {
     report.count("ticket types").read += 1;
     const boardId = l.boards.get(t.board_id);
     if (!boardId) continue;
+    let typeName = t.name;
+    if (usedTypeNames.has(`${boardId}|${typeName.toLowerCase()}`)) {
+      typeName = `${t.name} (${t.id})`;
+      report.except(
+        "ticket types",
+        t.id,
+        `duplicate name "${t.name}" on its board; renamed "${typeName}"`,
+      );
+    }
+    usedTypeNames.add(`${boardId}|${typeName.toLowerCase()}`);
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO service.ticket_type (board_id, name, legacy_cw_type_id) VALUES ($1,$2,$3)
        ON CONFLICT (legacy_cw_type_id) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
-      [boardId, t.name, t.id],
+      [boardId, typeName, t.id],
     );
     l.types.set(t.id, Number(rows[0]?.id));
     report.count("ticket types").written += 1;
