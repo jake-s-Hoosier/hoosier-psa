@@ -27,6 +27,7 @@ import { healthRoutes } from "./routes/health.js";
 import { lookupRoutes } from "./routes/lookups.js";
 import { mailboxRoutes } from "./routes/mailboxes.js";
 import { payPeriodRoutes } from "./routes/pay-periods.js";
+import { paymentRoutes } from "./routes/payments.js";
 import { systemRoutes } from "./routes/system.js";
 import { ticketChargeRoutes } from "./routes/ticket-charges.js";
 import { ticketFileRoutes } from "./routes/ticket-files.js";
@@ -201,6 +202,7 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
   app.register(adminRoutes, { prefix: "/api/v1/admin" });
   app.register(agreementRoutes, { prefix: "/api/v1/agreements" });
   app.register(billingRoutes, { prefix: "/api/v1/billing" });
+  app.register(paymentRoutes, { prefix: "/api/v1/payments" });
   app.register(companyRoutes, { prefix: "/api/v1/companies" });
   app.register(crmRecordRoutes, { prefix: "/api/v1/companies" });
   app.register(lookupRoutes, { prefix: "/api/v1/lookups" });

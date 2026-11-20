@@ -40,6 +40,17 @@ provider-neutral and tested against a fake provider. Each real provider is an ad
 | Webhooks with signatures | to verify | to verify | to verify |
 | Fee and settlement reporting API | to verify | to verify | to verify |
 
+## As built: manual payments
+
+Migration 0016 implements the ledger without any provider: `payments.payment` (customer, date received, method, reference,
+amount, fee, status posted or void) and `payments.payment_application` (payment, invoice, amount). One payment can pay
+several invoices and a payment larger than the invoice balance keeps the rest as credit on the customer, to be applied
+later. An invoice's `amount_paid` and status follow its applications from live (not void) payments. The database refuses
+a payer that is not the invoice's customer, an invoice that is not posted or part paid, and any application beyond the
+payment or the balance; the API checks the same things first so the message names the invoice. Voiding a payment keeps it
+on record and reopens what it paid. Card numbers are never stored. Provider fields (`provider`, `provider_reference`) are
+in place for Stripe and the others to fill later.
+
 ## Data model *(planned)*
 
 - `payments.payment_method`: company, provider, provider customer id, **token**, kind (card/ach), brand,

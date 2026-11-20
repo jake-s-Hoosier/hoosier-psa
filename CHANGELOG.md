@@ -10,6 +10,14 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Payments, recorded by hand. Migration 0016: schema `payments` with `payment` and `payment_application`, database
+  guards (payer must match the invoice, only posted unpaid invoices take money, applications cannot exceed the payment
+  or the invoice balance, a payment is voided and never deleted) and the usual audit trail. API under `/api/v1/payments`
+  (list, record with or without applications, apply credit later, take an application back, edit reference/notes/fee,
+  void) with permissions `billing.payment.read` and `billing.payment.write`. An invoice becomes part paid or paid as
+  applications arrive, goes back when a payment is voided or an application is taken back, and an invoice with live
+  payments still cannot be voided. Overpayment stays as credit on the customer. New Payments tab on the Billing screen
+  and a Payments section with Record payment on each posted invoice. Nothing is sent to QuickBooks or a card processor.
 - Materials and expenses on tickets, billed with the ticket run. Migration 0015: `service.ticket_charge` with a guard
   that freezes a charge once it is on an invoice. New "Materials and expenses" section on the ticket screen (catalog
   search fills description, price, cost and tax flag), an API under `/api/v1/tickets/:id/charges`, and a catalog search

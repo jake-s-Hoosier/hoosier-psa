@@ -18,6 +18,8 @@ import type {
   InvoiceLineUpdate,
   InvoiceUpdate,
   PayPeriod,
+  Payment,
+  PaymentCreate,
   PayrollRow,
   ProductChoice,
   Site,
@@ -611,3 +613,21 @@ export const deleteInvoiceLine = (id: number, lineId: number) =>
   request<Invoice>("DELETE", `/api/v1/billing/invoices/${id}/lines/${lineId}`);
 export const voidInvoice = (id: number, reason: string) =>
   request<Invoice>("POST", `/api/v1/billing/invoices/${id}/void`, { reason });
+
+export const listPayments = (
+  p: { state?: string; companyId?: number; invoiceId?: number },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ limit: "200", state: p.state ?? "posted" });
+  if (p.companyId) params.set("companyId", String(p.companyId));
+  if (p.invoiceId) params.set("invoiceId", String(p.invoiceId));
+  return get<ListResponse<Payment>>(`/api/v1/payments?${params}`, signal);
+};
+export const createPayment = (body: PaymentCreate) =>
+  request<Payment>("POST", "/api/v1/payments", body);
+export const applyPayment = (id: number, invoiceId: number, amount: number) =>
+  request<Payment>("POST", `/api/v1/payments/${id}/apply`, { invoiceId, amount });
+export const unapplyPayment = (id: number, applicationId: number) =>
+  request<Payment>("DELETE", `/api/v1/payments/${id}/applications/${applicationId}`);
+export const voidPayment = (id: number, reason: string) =>
+  request<Payment>("POST", `/api/v1/payments/${id}/void`, { reason });

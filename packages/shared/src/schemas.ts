@@ -841,3 +841,75 @@ export const invoiceLineUpdateSchema = z
 export type InvoiceLineUpdate = z.infer<typeof invoiceLineUpdateSchema>;
 
 export const invoiceVoidSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+
+// ---- Payments received (docs/10) ----
+
+export const paymentMethods = ["check", "ach", "card", "cash", "wire", "other"] as const;
+
+export interface PaymentApplication {
+  id: number;
+  invoiceId: number;
+  invoiceNumber: number | null;
+  amount: string;
+}
+
+export interface Payment {
+  id: number;
+  companyId: number;
+  company: string;
+  receivedOn: string;
+  method: (typeof paymentMethods)[number];
+  reference: string | null;
+  amount: string;
+  feeAmount: string;
+  status: "posted" | "void";
+  notes: string | null;
+  voidedAt: string | null;
+  voidReason: string | null;
+  /** Amount spread across invoices; the rest is credit on account. */
+  appliedAmount: string;
+  unappliedAmount: string;
+  applications: PaymentApplication[];
+}
+
+export const paymentCreateSchema = z
+  .object({
+    companyId: idSchema,
+    receivedOn: isoDate,
+    method: z.enum(paymentMethods),
+    reference: z.string().trim().min(1).max(100).optional(),
+    amount: z.number().positive().max(100_000_000),
+    feeAmount: z.number().min(0).max(100_000_000).optional(),
+    notes: z.string().trim().min(1).max(2000).optional(),
+    /** Invoices to pay now; anything left over stays as credit on account. */
+    applications: z
+      .array(z.object({ invoiceId: idSchema, amount: z.number().positive().max(100_000_000) }))
+      .max(50)
+      .default([]),
+  })
+  .refine((v) => (v.feeAmount ?? 0) < v.amount, "The fee must be less than the amount");
+
+export const paymentApplySchema = z.object({
+  invoiceId: idSchema,
+  amount: z.number().positive().max(100_000_000),
+});
+
+export const paymentUpdateSchema = z
+  .object({
+    reference: z.string().trim().min(1).max(100).nullable(),
+    notes: z.string().trim().min(1).max(2000).nullable(),
+    feeAmount: z.number().min(0).max(100_000_000),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+
+export const paymentVoidSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+
+export const paymentListQuerySchema = paginationSchema.extend({
+  companyId: idSchema.optional(),
+  invoiceId: idSchema.optional(),
+  /** unapplied = still has credit on account */
+  state: z.enum(["posted", "void", "unapplied", "all"]).default("posted"),
+});
+
+export type PaymentCreate = z.input<typeof paymentCreateSchema>;
