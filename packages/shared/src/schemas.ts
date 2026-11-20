@@ -47,6 +47,147 @@ export const companyCreateSchema = z.object({
 });
 export type CompanyCreate = z.infer<typeof companyCreateSchema>;
 
+// ---------------------------------------------------------------------------------------------
+// CRM: company edits, sites, contacts, notes
+// ---------------------------------------------------------------------------------------------
+
+const optText = (max: number) => z.string().trim().max(max).nullable().optional();
+
+export const companyUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255),
+    statusId: idSchema,
+    territoryId: idSchema.nullable(),
+    phone: z.string().trim().max(50).nullable(),
+    website: z.string().trim().max(255).nullable(),
+    isLead: z.boolean(),
+    isVendor: z.boolean(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type CompanyUpdate = z.infer<typeof companyUpdateSchema>;
+
+export const siteInputSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  addressLine1: optText(255),
+  addressLine2: optText(255),
+  city: optText(100),
+  state: optText(50),
+  postalCode: optText(20),
+  phone: optText(50),
+  accessNotes: optText(2000),
+  isDefaultService: z.boolean().optional(),
+  isBilling: z.boolean().optional(),
+});
+export type SiteInput = z.infer<typeof siteInputSchema>;
+export const siteUpdateSchema = siteInputSchema
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+
+export const siteSchema = z.object({
+  id: z.number().int(),
+  companyId: z.number().int(),
+  name: z.string(),
+  addressLine1: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  city: z.string().nullable(),
+  state: z.string().nullable(),
+  postalCode: z.string().nullable(),
+  phone: z.string().nullable(),
+  accessNotes: z.string().nullable(),
+  isDefaultService: z.boolean(),
+  isBilling: z.boolean(),
+});
+export type Site = z.infer<typeof siteSchema>;
+
+export const contactChannelKinds = [
+  "email",
+  "direct",
+  "mobile",
+  "office",
+  "home",
+  "fax",
+  "other",
+] as const;
+export const contactChannelInputSchema = z.object({
+  kind: z.enum(contactChannelKinds),
+  value: z.string().trim().min(1).max(255),
+  extension: z.string().trim().max(20).nullable().optional(),
+});
+export type ContactChannelInput = z.infer<typeof contactChannelInputSchema>;
+
+export const contactInputSchema = z.object({
+  firstName: z.string().trim().min(1).max(100),
+  lastName: optText(100),
+  title: optText(100),
+  department: optText(100),
+  siteId: idSchema.nullable().optional(),
+  notes: optText(2000),
+  isInactive: z.boolean().optional(),
+  /** When given, replaces the contact's phone numbers and email addresses. */
+  channels: z.array(contactChannelInputSchema).max(20).optional(),
+});
+export type ContactInput = z.infer<typeof contactInputSchema>;
+export const contactUpdateSchema = contactInputSchema
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+
+export const contactSchema = z.object({
+  id: z.number().int(),
+  companyId: z.number().int(),
+  siteId: z.number().int().nullable(),
+  site: z.string().nullable(),
+  firstName: z.string(),
+  lastName: z.string().nullable(),
+  title: z.string().nullable(),
+  department: z.string().nullable(),
+  notes: z.string().nullable(),
+  isInactive: z.boolean(),
+  channels: z.array(
+    z.object({
+      kind: z.enum(contactChannelKinds),
+      value: z.string(),
+      extension: z.string().nullable(),
+    }),
+  ),
+});
+export type Contact = z.infer<typeof contactSchema>;
+
+export const companyNoteKinds = ["note", "call", "meeting", "alert"] as const;
+export const companyNoteCreateSchema = z.object({
+  kind: z.enum(companyNoteKinds).default("note"),
+  body: z.string().trim().min(1).max(10000),
+  contactId: idSchema.optional(),
+});
+export type CompanyNoteCreate = z.infer<typeof companyNoteCreateSchema>;
+
+export const companyNoteSchema = z.object({
+  id: z.number().int(),
+  kind: z.enum(companyNoteKinds),
+  body: z.string(),
+  isAlert: z.boolean(),
+  contactId: z.number().int().nullable(),
+  contact: z.string().nullable(),
+  author: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type CompanyNote = z.infer<typeof companyNoteSchema>;
+
+/** Everything on one screen: the company, its people and places, and how busy the relationship is. */
+export const companyOverviewSchema = z.object({
+  company: companySchema,
+  sites: z.array(siteSchema),
+  contacts: z.array(contactSchema),
+  alerts: z.array(companyNoteSchema),
+  stats: z.object({
+    openTickets: z.number().int(),
+    ticketsLast90Days: z.number().int(),
+    hoursLast30Days: z.number(),
+    lastActivityAt: z.string().nullable(),
+  }),
+});
+export type CompanyOverview = z.infer<typeof companyOverviewSchema>;
+
 export const listResponse = <T extends z.ZodTypeAny>(item: T) =>
   z.object({
     items: z.array(item),
@@ -74,7 +215,9 @@ export const ticketSchema = z.object({
   companyId: z.number().int(),
   company: z.string(),
   siteId: z.number().int().nullable(),
+  site: z.string().nullable(),
   contactId: z.number().int().nullable(),
+  contact: z.string().nullable(),
   boardId: z.number().int(),
   board: z.string(),
   statusId: z.number().int(),
@@ -92,6 +235,8 @@ export type Ticket = z.infer<typeof ticketSchema>;
 export const ticketListQuerySchema = paginationSchema.extend({
   q: z.string().trim().min(1).max(100).optional(),
   companyId: idSchema.optional(),
+  siteId: idSchema.optional(),
+  contactId: idSchema.optional(),
   boardId: idSchema.optional(),
   statusId: idSchema.optional(),
   ownerMemberId: idSchema.optional(),
@@ -237,6 +382,7 @@ export type TimeEntryCreate = z.infer<typeof timeEntryCreateSchema>;
 export const timeEntryListQuerySchema = paginationSchema.extend({
   memberId: idSchema.optional(),
   ticketId: idSchema.optional(),
+  companyId: idSchema.optional(),
   from: isoDate.optional(),
   to: isoDate.optional(),
 });

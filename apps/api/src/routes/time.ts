@@ -189,6 +189,7 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
     if (!canSeeAll) add("member_id = ?", req.memberId);
     else if (q.memberId) add("member_id = ?", q.memberId);
     if (q.ticketId) add("ticket_id = ?", q.ticketId);
+    if (q.companyId) add("company_id = ?", q.companyId);
     if (q.from) add("work_date >= ?::date", q.from);
     if (q.to) add("work_date <= ?::date", q.to);
     const whereSql = `WHERE ${where.join(" AND ")}`;

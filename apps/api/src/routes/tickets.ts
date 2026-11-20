@@ -19,7 +19,9 @@ interface TicketRow {
   company_id: string;
   company: string;
   site_id: string | null;
+  site: string | null;
   contact_id: string | null;
+  contact: string | null;
   board_id: string;
   board: string;
   status_id: string;
@@ -34,12 +36,15 @@ interface TicketRow {
 }
 
 const SELECT_TICKET = `
-  SELECT t.id, t.summary, t.company_id, c.name AS company, t.site_id, t.contact_id,
+  SELECT t.id, t.summary, t.company_id, c.name AS company, t.site_id, st.name AS site, t.contact_id,
+         NULLIF(trim(concat(ct.first_name, ' ', ct.last_name)), '') AS contact,
          t.board_id, b.name AS board, t.status_id, s.name AS status, s.is_closed,
          t.priority_id, p.name AS priority, t.owner_member_id,
          t.entered_at, t.closed_at, t.updated_at
     FROM service.ticket t
     JOIN crm.company c ON c.id = t.company_id
+    LEFT JOIN crm.site st ON st.id = t.site_id
+    LEFT JOIN crm.contact ct ON ct.id = t.contact_id
     JOIN service.board b ON b.id = t.board_id
     JOIN service.board_status s ON s.id = t.status_id
     JOIN service.priority p ON p.id = t.priority_id`;
@@ -53,7 +58,9 @@ function toTicket(r: TicketRow): Ticket {
     companyId: Number(r.company_id),
     company: r.company,
     siteId: optId(r.site_id),
+    site: r.site,
     contactId: optId(r.contact_id),
+    contact: r.contact,
     boardId: Number(r.board_id),
     board: r.board,
     statusId: Number(r.status_id),
@@ -108,6 +115,8 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
       else add("t.summary ILIKE '%' || ? || '%'", q.q);
     }
     if (q.companyId) add("t.company_id = ?", q.companyId);
+    if (q.siteId) add("t.site_id = ?", q.siteId);
+    if (q.contactId) add("t.contact_id = ?", q.contactId);
     if (q.boardId) add("t.board_id = ?", q.boardId);
     if (q.statusId) add("t.status_id = ?", q.statusId);
     if (q.ownerMemberId) add("t.owner_member_id = ?", q.ownerMemberId);

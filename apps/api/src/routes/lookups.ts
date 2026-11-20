@@ -3,40 +3,47 @@ import type { FastifyPluginAsync } from "fastify";
 /** Read-only reference data the UI needs to fill forms: boards with statuses, priorities, work roles and types. */
 export const lookupRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", { config: { perm: "authenticated" } }, async () => {
-    const [boards, statuses, priorities, roles, types, members] = await Promise.all([
-      app.pool.query<{ id: string; name: string }>(
-        "SELECT id, name::text FROM service.board WHERE is_active ORDER BY name",
-      ),
-      app.pool.query<{
-        id: string;
-        board_id: string;
-        name: string;
-        is_closed: boolean;
-        is_default: boolean;
-      }>(
-        `SELECT id, board_id, name::text, is_closed, is_default FROM service.board_status
+    const [boards, statuses, priorities, roles, types, members, companyStatuses, territories] =
+      await Promise.all([
+        app.pool.query<{ id: string; name: string }>(
+          "SELECT id, name::text FROM service.board WHERE is_active ORDER BY name",
+        ),
+        app.pool.query<{
+          id: string;
+          board_id: string;
+          name: string;
+          is_closed: boolean;
+          is_default: boolean;
+        }>(
+          `SELECT id, board_id, name::text, is_closed, is_default FROM service.board_status
           WHERE is_active ORDER BY board_id, sort_order, id`,
-      ),
-      app.pool.query<{ id: string; name: string; color: string | null }>(
-        "SELECT id, name::text, color FROM service.priority ORDER BY sort_order, id",
-      ),
-      app.pool.query<{ id: string; name: string }>(
-        "SELECT id, name::text FROM catalog.work_role WHERE is_active ORDER BY name",
-      ),
-      app.pool.query<{ id: string; name: string; bill_time: string }>(
-        "SELECT id, name::text, bill_time FROM catalog.work_type WHERE is_active ORDER BY name",
-      ),
-      app.pool.query<{
-        id: string;
-        identifier: string;
-        first_name: string;
-        last_name: string;
-        is_field_tech: boolean;
-      }>(
-        `SELECT id, identifier::text, first_name, last_name, is_field_tech FROM iam.member
+        ),
+        app.pool.query<{ id: string; name: string; color: string | null }>(
+          "SELECT id, name::text, color FROM service.priority ORDER BY sort_order, id",
+        ),
+        app.pool.query<{ id: string; name: string }>(
+          "SELECT id, name::text FROM catalog.work_role WHERE is_active ORDER BY name",
+        ),
+        app.pool.query<{ id: string; name: string; bill_time: string }>(
+          "SELECT id, name::text, bill_time FROM catalog.work_type WHERE is_active ORDER BY name",
+        ),
+        app.pool.query<{
+          id: string;
+          identifier: string;
+          first_name: string;
+          last_name: string;
+          is_field_tech: boolean;
+        }>(
+          `SELECT id, identifier::text, first_name, last_name, is_field_tech FROM iam.member
           WHERE is_active ORDER BY last_name, first_name`,
-      ),
-    ]);
+        ),
+        app.pool.query<{ id: string; name: string }>(
+          "SELECT id, name::text FROM crm.company_status ORDER BY id",
+        ),
+        app.pool.query<{ id: string; name: string }>(
+          "SELECT id, name::text FROM crm.territory ORDER BY name",
+        ),
+      ]);
     return {
       boards: boards.rows.map((b) => ({
         id: Number(b.id),
@@ -58,6 +65,8 @@ export const lookupRoutes: FastifyPluginAsync = async (app) => {
         name: `${m.first_name} ${m.last_name}`,
         isFieldTech: m.is_field_tech,
       })),
+      companyStatuses: companyStatuses.rows.map((r) => ({ id: Number(r.id), name: r.name })),
+      territories: territories.rows.map((r) => ({ id: Number(r.id), name: r.name })),
       workTypes: types.rows.map((t) => ({ id: Number(t.id), name: t.name, billTime: t.bill_time })),
     };
   });

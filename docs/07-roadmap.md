@@ -18,7 +18,7 @@ validation; web shell; documentation set and ADRs.
 - Local sign-in (password + authenticator code, done); permission enforcement on every route (done); role administration (done: Access screen and API).
 - **CW import tool** (re-runnable, id-preserving): members, lookups, companies, sites, contacts and channels,
   catalog, boards and statuses, tickets, ticket notes, time entries. Shadow environment refreshed nightly ([11](11-cw-migration.md)).
-- CRM: company, site and contact CRUD, search (name, phone, email), notes and alerts, caller lookup by E.164 number.
+- CRM: company, site and contact CRUD (done), notes and alerts (done), search by name and ID (done; phone and email search to do), caller lookup by E.164 number.
 - Service: board and list views, ticket detail, notes, resources (done), status and priority changes, aging, attachments (done), inbound email to ticket (done, to be tried against a real mailbox in UAT).
 - Time: timer, manual entry, day and week timesheet, submit and approve, pay-period lock, **payroll export**
   to replace the spreadsheet.

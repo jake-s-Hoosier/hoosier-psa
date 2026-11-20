@@ -6,7 +6,9 @@ import {
   type Lookups,
   addNote,
   createTicket,
+  getCompanyOverview,
   getLookups,
+  getTicket,
   listCompanies,
   listNotes,
   listTickets,
@@ -14,21 +16,34 @@ import {
   startTimer,
   updateTicket,
 } from "./api";
+import { msg } from "./common";
+import { Link, navigate } from "./router";
 
 type Load =
   | { state: "loading" }
   | { state: "error"; message: string }
   | { state: "ready"; items: Ticket[]; total: number };
 
-const msg = (e: unknown) => (e instanceof Error ? e.message : "Request failed");
 const today = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "America/Indiana/Indianapolis" });
+
+export interface TicketFilters {
+  companyId?: number;
+  siteId?: number;
+  contactId?: number;
+}
 
 export function TicketsPage({
   onTimerChange,
   can,
   memberId,
+  routeTicketId,
+  filters,
 }: {
+  /** Ticket named in the address (#/tickets/55); the detail panel follows it. */
+  routeTicketId: number | null;
+  /** Narrowing from another screen (#/tickets?contactId=7), e.g. from a company page. */
+  filters: TicketFilters;
   onTimerChange: () => void;
   /** The signed-in member, or null in local dev mode where the API decides who you are. */
   memberId: number | null;
@@ -41,6 +56,16 @@ export function TicketsPage({
   const [boardId, setBoardId] = useState<number | undefined>();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [selected, setSelected] = useState<Ticket | null>(null);
+  const [filterLabel, setFilterLabel] = useState<string | null>(null);
+  const filterKey = `${filters.companyId ?? ""}|${filters.siteId ?? ""}|${filters.contactId ?? ""}`;
+  const search =
+    filterKey === "||"
+      ? ""
+      : `?${new URLSearchParams(
+          Object.entries(filters)
+            .filter(([, v]) => v)
+            .map(([k, v]) => [k, String(v)]),
+        )}`;
   const [creating, setCreating] = useState(false);
   const [reload, setReload] = useState(0);
 
@@ -55,7 +80,7 @@ export function TicketsPage({
     const controller = new AbortController();
     setLoad({ state: "loading" });
     const timer = setTimeout(() => {
-      listTickets({ q: query, state, boardId }, controller.signal)
+      listTickets({ q: query, state, boardId, ...filters }, controller.signal)
         .then((r) => setLoad({ state: "ready", items: r.items, total: r.total }))
         .catch((err: unknown) => {
           if (!controller.signal.aborted) setLoad({ state: "error", message: msg(err) });
@@ -65,7 +90,50 @@ export function TicketsPage({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query, state, boardId, reload]);
+  }, [query, state, boardId, reload, filterKey]);
+
+  // The address decides which ticket is open, so links from other screens land on the right one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only the address should trigger a fetch
+  useEffect(() => {
+    if (routeTicketId === null) {
+      setSelected(null);
+      return;
+    }
+    if (selected?.id === routeTicketId) return;
+    const controller = new AbortController();
+    getTicket(routeTicketId, controller.signal)
+      .then(setSelected)
+      .catch(() => {});
+    return () => controller.abort();
+  }, [routeTicketId]);
+
+  // Say who the list is narrowed to, with a way back to everything.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: filters are covered by filterKey
+  useEffect(() => {
+    if (filterKey === "||") {
+      setFilterLabel(null);
+      return;
+    }
+    if (!filters.companyId) {
+      setFilterLabel("one site or contact");
+      return;
+    }
+    getCompanyOverview(filters.companyId)
+      .then((o) => {
+        const contact = o.contacts.find((c) => c.id === filters.contactId);
+        const site = o.sites.find((x) => x.id === filters.siteId);
+        setFilterLabel(
+          [
+            o.company.name,
+            site?.name,
+            contact && `${contact.firstName} ${contact.lastName ?? ""}`.trim(),
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        );
+      })
+      .catch(() => setFilterLabel("one company"));
+  }, [filterKey]);
 
   const refresh = () => setReload((n) => n + 1);
 
@@ -80,6 +148,14 @@ export function TicketsPage({
           </button>
         )}
       </div>
+      {filterLabel && (
+        <div className="chips">
+          <span className="chip">Showing tickets for {filterLabel}</span>
+          <button type="button" className="link" onClick={() => navigate("/tickets")}>
+            Show all tickets
+          </button>
+        </div>
+      )}
       <div className="split">
         <div className="card">
           <div className="toolbar">
@@ -138,11 +214,17 @@ export function TicketsPage({
                   <tr key={t.id} className={selected?.id === t.id ? "selected" : undefined}>
                     <td className="mono">{t.id}</td>
                     <td>
-                      <button type="button" className="link" onClick={() => setSelected(t)}>
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() => navigate(`/tickets/${t.id}${search}`)}
+                      >
                         {t.summary}
                       </button>
                     </td>
-                    <td className="muted">{t.company}</td>
+                    <td>
+                      <Link to={`/companies/${t.companyId}`}>{t.company}</Link>
+                    </td>
                     <td>
                       <span className="badge">{t.status}</span>
                     </td>
@@ -160,7 +242,7 @@ export function TicketsPage({
             key={selected.id}
             ticket={selected}
             lookups={lookups}
-            onClose={() => setSelected(null)}
+            onClose={() => navigate(`/tickets${search}`)}
             onChanged={(t) => {
               setSelected(t);
               refresh();
@@ -175,8 +257,8 @@ export function TicketsPage({
           onClose={() => setCreating(false)}
           onCreated={(t) => {
             setCreating(false);
-            setSelected(t);
             refresh();
+            navigate(`/tickets/${t.id}${search}`);
           }}
         />
       )}
@@ -232,7 +314,18 @@ function TicketDetail(props: {
           <div className="mono muted">#{ticket.id}</div>
           <h3>{ticket.summary}</h3>
           <div className="muted">
-            {ticket.company} · {ticket.board}
+            <Link to={`/companies/${ticket.companyId}`}>{ticket.company}</Link>
+            {ticket.site && <> · {ticket.site}</>}
+            {ticket.contact && (
+              <>
+                {" · "}
+                <Link to={`/tickets?companyId=${ticket.companyId}&contactId=${ticket.contactId}`}>
+                  {ticket.contact}
+                </Link>
+              </>
+            )}
+            {" · "}
+            {ticket.board}
           </div>
         </div>
         <button type="button" className="btn" onClick={props.onClose} aria-label="Close details">
@@ -446,22 +539,47 @@ function TicketDetail(props: {
   );
 }
 
-function NewTicketDialog(props: {
+export function NewTicketDialog(props: {
   lookups: Lookups;
   onClose: () => void;
   onCreated: (t: Ticket) => void;
+  /** Start with this company already chosen (from a company page). */
+  initial?: { companyId: number; companyName: string; siteId?: number; contactId?: number };
 }) {
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
   const [boardId, setBoardId] = useState(props.lookups.boards[0]?.id ?? 0);
-  const [companyQuery, setCompanyQuery] = useState("");
+  const [companyQuery, setCompanyQuery] = useState(props.initial?.companyName ?? "");
   const [companies, setCompanies] = useState<Array<{ id: number; name: string }>>([]);
-  const [companyId, setCompanyId] = useState<number | null>(null);
+  const [companyId, setCompanyId] = useState<number | null>(props.initial?.companyId ?? null);
+  const [siteId, setSiteId] = useState<number | null>(props.initial?.siteId ?? null);
+  const [contactId, setContactId] = useState<number | null>(props.initial?.contactId ?? null);
+  const [sites, setSites] = useState<Array<{ id: number; name: string }>>([]);
+  const [contacts, setContacts] = useState<Array<{ id: number; name: string }>>([]);
+
+  // Once a company is chosen, offer only its own sites and people.
+  useEffect(() => {
+    if (!companyId) {
+      setSites([]);
+      setContacts([]);
+      return;
+    }
+    getCompanyOverview(companyId)
+      .then((o) => {
+        setSites(o.sites.map((x) => ({ id: x.id, name: x.name })));
+        setContacts(
+          o.contacts
+            .filter((c) => !c.isInactive)
+            .map((c) => ({ id: c.id, name: `${c.firstName} ${c.lastName ?? ""}`.trim() })),
+        );
+      })
+      .catch(() => {});
+  }, [companyId]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (companyQuery.trim().length < 2) {
+    if (companyId !== null || companyQuery.trim().length < 2) {
       setCompanies([]);
       return;
     }
@@ -475,7 +593,7 @@ function NewTicketDialog(props: {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [companyQuery]);
+  }, [companyQuery, companyId]);
 
   const submit = async () => {
     if (!companyId) return;
@@ -486,6 +604,8 @@ function NewTicketDialog(props: {
         await createTicket({
           summary,
           companyId,
+          siteId: siteId ?? undefined,
+          contactId: contactId ?? undefined,
           boardId,
           description: description.trim() || undefined,
         }),
@@ -509,6 +629,8 @@ function NewTicketDialog(props: {
           onChange={(e) => {
             setCompanyQuery(e.target.value);
             setCompanyId(null);
+            setSiteId(null);
+            setContactId(null);
           }}
         />
       </label>
@@ -529,6 +651,40 @@ function NewTicketDialog(props: {
             </li>
           ))}
         </ul>
+      )}
+      {companyId !== null && (sites.length > 0 || contacts.length > 0) && (
+        <div className="field-row">
+          <label>
+            Site
+            <select
+              className="input"
+              value={siteId ?? ""}
+              onChange={(e) => setSiteId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">No specific site</option>
+              {sites.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Contact
+            <select
+              className="input"
+              value={contactId ?? ""}
+              onChange={(e) => setContactId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">No specific contact</option>
+              {contacts.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       )}
       <label>
         Board

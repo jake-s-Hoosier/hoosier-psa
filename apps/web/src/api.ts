@@ -1,4 +1,17 @@
-import type { Company, Ticket, TicketNote, TimeEntry } from "@hoosier/shared";
+import type {
+  Company,
+  CompanyNote,
+  CompanyNoteCreate,
+  CompanyOverview,
+  CompanyUpdate,
+  Contact,
+  ContactInput,
+  Site,
+  SiteInput,
+  Ticket,
+  TicketNote,
+  TimeEntry,
+} from "@hoosier/shared";
 
 export interface ListResponse<T> {
   items: T[];
@@ -82,30 +95,53 @@ export interface Lookups {
   workRoles: Array<{ id: number; name: string }>;
   workTypes: Array<{ id: number; name: string; billTime: string }>;
   members: Array<{ id: number; identifier: string; name: string; isFieldTech: boolean }>;
+  companyStatuses: Array<{ id: number; name: string }>;
+  territories: Array<{ id: number; name: string }>;
 }
 
 export const getLookups = () => get<Lookups>("/api/v1/lookups");
 
 export function listTickets(
-  p: { q: string; state: "open" | "closed" | "all"; boardId?: number },
+  p: {
+    q: string;
+    state: "open" | "closed" | "all";
+    boardId?: number;
+    companyId?: number;
+    siteId?: number;
+    contactId?: number;
+  },
   signal?: AbortSignal,
 ): Promise<ListResponse<Ticket>> {
   const params = new URLSearchParams({ limit: "100", state: p.state });
   if (p.q.trim()) params.set("q", p.q.trim());
   if (p.boardId) params.set("boardId", String(p.boardId));
+  if (p.companyId) params.set("companyId", String(p.companyId));
+  if (p.siteId) params.set("siteId", String(p.siteId));
+  if (p.contactId) params.set("contactId", String(p.contactId));
   return get(`/api/v1/tickets?${params}`, signal);
 }
+
+export const getTicket = (id: number, signal?: AbortSignal) =>
+  get<Ticket>(`/api/v1/tickets/${id}`, signal);
 
 export const createTicket = (body: {
   summary: string;
   companyId: number;
+  siteId?: number;
+  contactId?: number;
   boardId: number;
   description?: string;
 }) => request<Ticket>("POST", "/api/v1/tickets", body);
 
 export const updateTicket = (
   id: number,
-  body: { statusId?: number; priorityId?: number; companyId?: number },
+  body: {
+    statusId?: number;
+    priorityId?: number;
+    companyId?: number;
+    siteId?: number | null;
+    contactId?: number | null;
+  },
 ) => request<Ticket>("PATCH", `/api/v1/tickets/${id}`, body);
 
 export const listNotes = (id: number, signal?: AbortSignal) =>
@@ -329,3 +365,39 @@ export const listInboundMessages = (outcome?: string) =>
   get<{ items: InboundMessage[] }>(
     `/api/v1/mailboxes/messages${outcome ? `?outcome=${outcome}` : ""}`,
   );
+
+// ---- CRM records ------------------------------------------------------------------------------
+
+export const getCompanyOverview = (id: number, signal?: AbortSignal) =>
+  get<CompanyOverview>(`/api/v1/companies/${id}/overview`, signal);
+export const createCompany = (body: {
+  identifier: string;
+  name: string;
+  statusId: number;
+  phone?: string;
+  website?: string;
+}) => request<Company>("POST", "/api/v1/companies", body);
+export const updateCompany = (id: number, body: CompanyUpdate) =>
+  request<Company>("PATCH", `/api/v1/companies/${id}`, body);
+
+export const createSite = (companyId: number, body: SiteInput) =>
+  request<Site>("POST", `/api/v1/companies/${companyId}/sites`, body);
+export const updateSite = (companyId: number, siteId: number, body: Partial<SiteInput>) =>
+  request<Site>("PATCH", `/api/v1/companies/${companyId}/sites/${siteId}`, body);
+export const deleteSite = (companyId: number, siteId: number) =>
+  request<undefined>("DELETE", `/api/v1/companies/${companyId}/sites/${siteId}`);
+
+export const createContact = (companyId: number, body: ContactInput) =>
+  request<Contact>("POST", `/api/v1/companies/${companyId}/contacts`, body);
+export const updateContact = (companyId: number, contactId: number, body: Partial<ContactInput>) =>
+  request<Contact>("PATCH", `/api/v1/companies/${companyId}/contacts/${contactId}`, body);
+export const deleteContact = (companyId: number, contactId: number) =>
+  request<undefined>("DELETE", `/api/v1/companies/${companyId}/contacts/${contactId}`);
+
+export const listCompanyNotes = (companyId: number, signal?: AbortSignal) =>
+  get<{ items: CompanyNote[] }>(`/api/v1/companies/${companyId}/notes`, signal);
+export const addCompanyNote = (companyId: number, body: CompanyNoteCreate) =>
+  request<CompanyNote>("POST", `/api/v1/companies/${companyId}/notes`, body);
+
+export const listCompanyTime = (companyId: number, signal?: AbortSignal) =>
+  get<ListResponse<TimeEntry>>(`/api/v1/time-entries?companyId=${companyId}&limit=25`, signal);

@@ -20,6 +20,7 @@ import { HttpError, errorHandler } from "./errors.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { companyRoutes } from "./routes/companies.js";
+import { crmRecordRoutes } from "./routes/crm-records.js";
 import { healthRoutes } from "./routes/health.js";
 import { lookupRoutes } from "./routes/lookups.js";
 import { mailboxRoutes } from "./routes/mailboxes.js";
@@ -196,6 +197,7 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
   }
   app.register(adminRoutes, { prefix: "/api/v1/admin" });
   app.register(companyRoutes, { prefix: "/api/v1/companies" });
+  app.register(crmRecordRoutes, { prefix: "/api/v1/companies" });
   app.register(lookupRoutes, { prefix: "/api/v1/lookups" });
   app.register(mailboxRoutes, { prefix: "/api/v1/mailboxes" });
   app.register(ticketRoutes, { prefix: "/api/v1/tickets" });

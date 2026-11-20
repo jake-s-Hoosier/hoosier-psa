@@ -6,6 +6,12 @@ the first production release.
 ## [Unreleased]
 
 ### Added
+- Connected records. Every record has an address (`#/companies/12`, `#/tickets/55`, `#/tickets?contactId=7`), so any
+  screen can link to any other. New **company page**: alerts, activity stats, contacts and sites (add, edit, remove),
+  the company's tickets, recent time and notes, with "New ticket" prefilled from the company, a site or a contact.
+  Tickets now show and link to their company, site and contact; the ticket list can be narrowed to a site or contact.
+  Company create/edit, site and contact CRUD, company notes (including alerts) and `/companies/:id/overview` in the API;
+  tickets and time entries can be filtered by company, site and contact.
 - Inbound email to tickets through Microsoft 365 ([ADR 0012](docs/adr/0012-microsoft-365-mail.md), migration 0011):
   Graph reader (`Mail.Read`, polled, read-only), processor that opens tickets for known contacts, adds replies to the
   ticket named in the subject or threaded by `In-Reply-To`/`References` (only from a known contact of that company or staff),

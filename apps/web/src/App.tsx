@@ -2,6 +2,7 @@ import type { TimeEntry } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
 import { AdminPage } from "./AdminPage";
 import { CompaniesPage } from "./CompaniesPage";
+import { CompanyPage } from "./CompanyPage";
 import { LoginPage } from "./LoginPage";
 import { MailPage } from "./MailPage";
 import { TicketsPage } from "./TicketsPage";
@@ -9,12 +10,15 @@ import { TimerBar } from "./TimerBar";
 import {
   ApiError,
   type AuthView,
+  type Lookups,
   type SystemStatus,
   authLogout,
   authMe,
+  getLookups,
   getSystemStatus,
   getTimer,
 } from "./api";
+import { navigate, useRoute } from "./router";
 
 const NAV = [
   { id: "companies", label: "Companies", ready: true, perm: "crm.company.read" },
@@ -111,7 +115,20 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
   const can = (key: string) => held === null || held.has(key);
   const visible = (item: (typeof NAV)[number]) => !("perm" in item) || can(item.perm);
   const firstReady = NAV.find((n) => n.ready && visible(n));
-  const [page, setPage] = useState<PageId>(firstReady?.id ?? "tickets");
+  const route = useRoute();
+  const known = NAV.find((n) => n.id === route.page && n.ready && visible(n));
+  const page: PageId | undefined = known?.id ?? firstReady?.id;
+  const [lookups, setLookups] = useState<Lookups | null>(null);
+  useEffect(() => {
+    getLookups()
+      .then(setLookups)
+      .catch(() => {});
+  }, []);
+  const filters = {
+    companyId: Number(route.params.get("companyId")) || undefined,
+    siteId: Number(route.params.get("siteId")) || undefined,
+    contactId: Number(route.params.get("contactId")) || undefined,
+  };
   const [timer, setTimer] = useState<TimeEntry | null>(null);
   const refreshTimer = useCallback(() => {
     getTimer()
@@ -134,7 +151,7 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
             disabled={!item.ready}
             aria-current={page === item.id ? "page" : undefined}
             title={item.ready ? undefined : "Coming in a later milestone"}
-            onClick={() => setPage(item.id)}
+            onClick={() => navigate(`/${item.id}`)}
           >
             {item.label}
           </button>
@@ -154,9 +171,20 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
         <EnvironmentBanner />
         {timer && <TimerBar timer={timer} onStopped={refreshTimer} />}
         <main className="main">
-          {page === "companies" && can("crm.company.read") && <CompaniesPage />}
+          {page === "companies" && can("crm.company.read") && route.id === null && (
+            <CompaniesPage canWrite={can("crm.company.write")} />
+          )}
+          {page === "companies" && can("crm.company.read") && route.id !== null && (
+            <CompanyPage key={route.id} id={route.id} can={can} lookups={lookups} />
+          )}
           {page === "tickets" && can("service.ticket.read") && (
-            <TicketsPage onTimerChange={refreshTimer} can={can} memberId={me?.member.id ?? null} />
+            <TicketsPage
+              onTimerChange={refreshTimer}
+              can={can}
+              memberId={me?.member.id ?? null}
+              routeTicketId={route.id}
+              filters={filters}
+            />
           )}
           {page === "mail" && can("service.mailbox.manage") && <MailPage />}
           {page === "admin" && can("iam.manage") && <AdminPage />}

@@ -452,3 +452,107 @@ textarea.input {
 .link[aria-current="true"] {
   font-weight: 700;
 }
+
+/* Connected records: company page, stat chips, alerts, link rows */
+a.link {
+  text-decoration: none;
+}
+a.link:hover {
+  text-decoration: underline;
+}
+.back {
+  display: inline-block;
+  margin-bottom: var(--space-2);
+}
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.stat {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  min-width: 140px;
+  box-shadow: var(--shadow-sm);
+}
+.stat strong {
+  display: block;
+  font-size: 22px;
+}
+.stat span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+.alert-banner {
+  background: #fff4e5;
+  border: 1px solid #f5c37a;
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.alert-banner p {
+  margin: var(--space-1) 0 0;
+}
+.section {
+  margin-bottom: var(--space-4);
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.section-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+@media (max-width: 1100px) {
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+}
+.card-pad {
+  padding: var(--space-4);
+}
+.site-card {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-3) 0;
+}
+.site-card:first-child {
+  border-top: 0;
+}
+.dialog.wide {
+  width: min(640px, 92vw);
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.inactive {
+  opacity: 0.55;
+}
+.page-header {
+  gap: var(--space-3);
+}
+.page-header .btn.primary {
+  margin-left: auto;
+}
+.chips {
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
