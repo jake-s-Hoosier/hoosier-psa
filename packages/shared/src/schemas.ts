@@ -302,11 +302,74 @@ export const ticketNoteSchema = z.object({
 });
 export type TicketNote = z.infer<typeof ticketNoteSchema>;
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+
+// ---- Ticket charges: materials and expenses billed with a ticket (docs/05) ----
+
+export const chargeKinds = ["product", "expense"] as const;
+export const chargeBillable = ["billable", "no_charge", "do_not_bill"] as const;
+
+export interface TicketCharge {
+  id: number;
+  ticketId: number;
+  kind: (typeof chargeKinds)[number];
+  productId: number | null;
+  product: string | null;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  unitCost: string;
+  /** quantity x unit price, rounded to cents */
+  amount: string;
+  taxable: boolean;
+  billable: (typeof chargeBillable)[number];
+  incurredOn: string;
+  /** Set while the charge is on a draft or posted invoice; it cannot change then. */
+  invoiceId: number | null;
+  invoiceNumber: number | null;
+  addedByMemberId: number | null;
+}
+
+export const ticketChargeCreateSchema = z.object({
+  kind: z.enum(chargeKinds).default("product"),
+  /** The catalog item. Fills description, price, cost and taxable when those are not given. */
+  productId: idSchema.optional(),
+  description: z.string().trim().min(1).max(500).optional(),
+  quantity: z.number().positive().max(1_000_000).default(1),
+  unitPrice: z.number().min(0).max(100_000_000).optional(),
+  unitCost: z.number().min(0).max(100_000_000).optional(),
+  taxable: z.boolean().optional(),
+  billable: z.enum(chargeBillable).default("billable"),
+  incurredOn: isoDate.optional(),
+});
+export type TicketChargeCreate = z.infer<typeof ticketChargeCreateSchema>;
+
+export const ticketChargeUpdateSchema = z
+  .object({
+    description: z.string().trim().min(1).max(500),
+    quantity: z.number().positive().max(1_000_000),
+    unitPrice: z.number().min(0).max(100_000_000),
+    unitCost: z.number().min(0).max(100_000_000),
+    taxable: z.boolean(),
+    billable: z.enum(chargeBillable),
+    incurredOn: isoDate,
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type TicketChargeUpdate = z.infer<typeof ticketChargeUpdateSchema>;
+
+export interface ProductChoice {
+  id: number;
+  identifier: string;
+  description: string;
+  unitPrice: string;
+  unitCost: string;
+  taxable: boolean;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Time entries
 // ---------------------------------------------------------------------------------------------
-
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
 
 export const timeEntrySchema = z.object({
   id: z.number().int(),

@@ -1,6 +1,7 @@
 import type { Agreement, Ticket, TicketNote } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
 import { MoveToCompany } from "./MoveToCompany";
+import { ChargesSection } from "./TicketCharges";
 import { AttachmentsSection, ResourcesSection } from "./TicketFiles";
 import {
   type Lookups,
@@ -538,6 +539,11 @@ function TicketDetail(props: {
       <ResourcesSection
         ticketId={ticket.id}
         lookups={lookups}
+        canEdit={props.can("service.ticket.write")}
+        onError={setError}
+      />
+      <ChargesSection
+        ticketId={ticket.id}
         canEdit={props.can("service.ticket.write")}
         onError={setError}
       />

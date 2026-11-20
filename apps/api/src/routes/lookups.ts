@@ -2,6 +2,38 @@ import type { FastifyPluginAsync } from "fastify";
 
 /** Read-only reference data the UI needs to fill forms: boards with statuses, priorities, work roles and types. */
 export const lookupRoutes: FastifyPluginAsync = async (app) => {
+  /** Catalog search for the charge form: by SKU or words in the description, active items only. */
+  app.get("/products", { config: { perm: "service.ticket.read" } }, async (req) => {
+    const q = String((req.query as { q?: string }).q ?? "")
+      .trim()
+      .slice(0, 100);
+    if (q.length < 2) return { items: [] };
+    const { rows } = await app.pool.query<{
+      id: string;
+      identifier: string;
+      description: string;
+      unit_price: string;
+      unit_cost: string;
+      is_taxable: boolean;
+    }>(
+      `SELECT id, identifier::text, description, unit_price, unit_cost, is_taxable
+         FROM catalog.product
+        WHERE is_active AND (identifier ILIKE $1 OR description ILIKE $1)
+        ORDER BY (identifier ILIKE $2) DESC, identifier LIMIT 15`,
+      [`%${q.replace(/[\\%_]/g, "\\$&")}%`, `${q.replace(/[\\%_]/g, "\\$&")}%`],
+    );
+    return {
+      items: rows.map((r) => ({
+        id: Number(r.id),
+        identifier: r.identifier,
+        description: r.description,
+        unitPrice: r.unit_price,
+        unitCost: r.unit_cost,
+        taxable: r.is_taxable,
+      })),
+    };
+  });
+
   app.get("/", { config: { perm: "authenticated" } }, async () => {
     const [
       boards,

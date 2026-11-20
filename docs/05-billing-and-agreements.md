@@ -146,8 +146,26 @@ precomputable.
   period can still be linked and released; this uses the same audited override as the invoice void.
 - The importer must mark historical ConnectWise time as billed so the first ticket run does not bill history.
 
+### Materials and expenses as built
+- A **charge** (`service.ticket_charge`) is a material (`product`) or an `expense` on a ticket: description, quantity,
+  unit price and cost, a taxable flag, a billing choice (`billable`, `no_charge`, `do_not_bill`) and the date incurred.
+  Choosing a catalog item fills the description, price, cost and taxable flag, and that item's QuickBooks item name
+  rides along to the export. A material follows its catalog tax flag; an expense is not taxed unless set. Added on the
+  ticket screen, with a catalog search.
+- The **same ticket run** bills them: every billable, unbilled charge incurred through the run's date becomes one
+  invoice line (kind `product` or `expense`), priced quantity times unit price, described `Ticket # <n>  <description>`,
+  on the same invoice as the ticket's labor. Charges are billed whether or not the ticket is closed.
+- **Fixed-fee and not-to-exceed** tickets cover labor only: materials and expenses bill separately, at their own
+  prices, on top of the fee or cap. If a fixed-fee ticket's labor is held (not closed, time not approved), its
+  materials still bill and the held labor is listed as skipped.
+- **No double billing, same as time.** A charge is linked to its draft line when the run is created, and the database
+  refuses to change or delete a charge that is on an invoice. Deleting the draft line or invoice, discarding the run,
+  or voiding the invoice releases the charge; it can then be edited or billed again.
+- Not yet built: parts ordering and receiving, purchase orders, inventory on hand, markup rules by vendor or category,
+  billing materials for projects (only ticket charges bill), and expense approval or receipts.
+
 - Not yet built: payments (the `partially_paid` and `paid` states and `amount_paid` exist), PDFs, email delivery,
-  product, expense and project invoices, credit memos, and the QuickBooks export.
+  project invoices, credit memos, and the QuickBooks export.
 
 ## Open questions
 

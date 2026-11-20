@@ -10,6 +10,12 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Materials and expenses on tickets, billed with the ticket run. Migration 0015: `service.ticket_charge` with a guard
+  that freezes a charge once it is on an invoice. New "Materials and expenses" section on the ticket screen (catalog
+  search fills description, price, cost and tax flag), an API under `/api/v1/tickets/:id/charges`, and a catalog search
+  at `/api/v1/lookups/products`. A ticket run now bills charges by the date incurred as product or expense lines next
+  to the ticket's labor, and deleting a draft line, discarding a run or voiding an invoice releases them. Fixed-fee and
+  not-to-exceed tickets cover labor only.
 - QuickBooks mapping spike. `docs/06` records how ConnectWise fills QuickBooks invoices (read from 8,630 recent
   invoices): header fields, tax codes, terms, items, ticket-labor lines and the invoice number series. A pure
   `qbInvoiceAdd` builder in `@hoosier/shared` turns an invoice into an `InvoiceAdd` request and lists what is missing,

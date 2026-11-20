@@ -19,9 +19,11 @@ import type {
   InvoiceUpdate,
   PayPeriod,
   PayrollRow,
+  ProductChoice,
   Site,
   SiteInput,
   Ticket,
+  TicketCharge,
   TicketNote,
   TimeEntry,
   TimeEntryCreate,
@@ -295,6 +297,27 @@ export const removeResource = (ticketId: number, memberId: number) =>
   );
 export const listAttachments = (ticketId: number) =>
   get<{ items: TicketAttachment[] }>(`/api/v1/tickets/${ticketId}/attachments`);
+export const listCharges = (ticketId: number) =>
+  get<{ items: TicketCharge[] }>(`/api/v1/tickets/${ticketId}/charges`);
+export const addCharge = (
+  ticketId: number,
+  body: {
+    kind: "product" | "expense";
+    productId?: number;
+    description?: string;
+    quantity: number;
+    unitPrice?: number;
+    unitCost?: number;
+    taxable?: boolean;
+    billable?: TicketCharge["billable"];
+    incurredOn?: string;
+  },
+) => request<TicketCharge>("POST", `/api/v1/tickets/${ticketId}/charges`, body);
+export const deleteCharge = (ticketId: number, id: number) =>
+  request<undefined>("DELETE", `/api/v1/tickets/${ticketId}/charges/${id}`);
+export const searchProducts = (q: string) =>
+  get<{ items: ProductChoice[] }>(`/api/v1/lookups/products?q=${encodeURIComponent(q)}`);
+
 export const deleteAttachment = (ticketId: number, id: number) =>
   request<undefined>("DELETE", `/api/v1/tickets/${ticketId}/attachments/${id}`);
 

@@ -49,7 +49,7 @@ const number = (i: Invoice) => (i.invoiceNumber === null ? "—" : `#${i.invoice
 /** What a run covers, for lists and headings. */
 const runLabel = (r: { kind: string; periodMonth: string; throughDate: string | null }) =>
   r.kind === "ticket" && r.throughDate
-    ? `Ticket time through ${shortDate(r.throughDate)}`
+    ? `Ticket time and materials through ${shortDate(r.throughDate)}`
     : monthLabel(r.periodMonth);
 
 const monthLabel = (m: string) =>
@@ -126,7 +126,8 @@ function RunsTab({ can }: { can: (key: string) => boolean }) {
       <div className="card">
         <div className="toolbar">
           <span className="muted">
-            A run bills every agreement whose cycle starts in the month, in advance, as draft
+            An agreement run bills every agreement whose cycle starts in the month, in advance. A
+            ticket run bills approved time, materials and expenses through a date. Both make draft
             invoices to review before posting.
           </span>
           {can("billing.invoice.write") && (
@@ -367,7 +368,7 @@ function NewRunDialog(props: { onClose: () => void; onCreated: (r: BillingRun) =
             }}
           >
             <option value="agreement">Agreements, by month</option>
-            <option value="ticket">Ticket time, through a date</option>
+            <option value="ticket">Ticket time and materials, through a date</option>
           </select>
         </label>
         {kind === "agreement" ? (
