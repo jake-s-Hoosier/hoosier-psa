@@ -740,7 +740,11 @@ export const billingRunCreateSchema = z
     if (v.kind === "agreement" && !v.month)
       ctx.addIssue({ code: "custom", path: ["month"], message: "Choose the month to bill" });
     if (v.kind === "ticket" && !v.throughDate)
-      ctx.addIssue({ code: "custom", path: ["throughDate"], message: "Choose the last day to bill" });
+      ctx.addIssue({
+        code: "custom",
+        path: ["throughDate"],
+        message: "Choose the last day to bill",
+      });
   });
 export type BillingRunCreate = z.infer<typeof billingRunCreateSchema>;
 

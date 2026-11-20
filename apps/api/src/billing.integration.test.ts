@@ -373,4 +373,41 @@ suite("billing runs and invoices (integration)", () => {
     const byNumber = (await call("GET", "/api/v1/billing/invoices?q=2")).json();
     expect(byNumber.items.some((i: { invoiceNumber: number }) => i.invoiceNumber === 2)).toBe(true);
   });
+
+  it("shows the QuickBooks request for an invoice without sending anything", async () => {
+    await pool.query("UPDATE catalog.tax_code SET qb_tax_code = 'Indiana Sales Tax'");
+    await pool.query("UPDATE catalog.billing_terms SET qb_terms = 'Net 30'");
+    await pool.query("UPDATE catalog.product SET qb_item_full_name = 'RMR-LIC' WHERE id = $1", [
+      productId,
+    ]);
+    const a = await agreement(acme, "monthly", [["Licence", 2, 50]], {
+      billStartDate: "2031-01-15",
+    });
+    const made = await run("2031-01", { invoiceDate: "2031-01-15" });
+    expect(made.statusCode).toBe(201);
+    const invoice = (await call("GET", `/api/v1/billing/runs/${made.json().id}`))
+      .json()
+      .invoices.find((i: { companyId: number }) => i.companyId === acme);
+    const draft = (await call("GET", `/api/v1/billing/invoices/${invoice.id}/qbxml`)).json();
+    expect(draft.problems).toEqual([]);
+    expect(draft.xml).toContain("<RefNumber>DRAFT</RefNumber>");
+    expect(draft.xml).toContain("<ListID>80000001-1</ListID>");
+    expect(draft.xml).toContain("<FullName>RMR-LIC</FullName>");
+    expect(draft.xml).toContain("<FullName>Tax</FullName>");
+
+    await call("POST", `/api/v1/billing/runs/${made.json().id}/post`);
+    const posted = (await call("GET", `/api/v1/billing/invoices/${invoice.id}/qbxml`)).json();
+    expect(posted.xml).toMatch(/<RefNumber>\d+<\/RefNumber>/);
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM information_schema.tables WHERE table_schema = 'accounting'",
+      ),
+    ).toBe(0);
+
+    await pool.query("UPDATE crm.company SET qb_customer_list_id = NULL WHERE id = $1", [acme]);
+    const unlinked = (await call("GET", `/api/v1/billing/invoices/${invoice.id}/qbxml`)).json();
+    expect(unlinked.xml).toBeNull();
+    expect(unlinked.problems[0]).toContain("not linked");
+    expect(a.id).toBeGreaterThan(0);
+  });
 });

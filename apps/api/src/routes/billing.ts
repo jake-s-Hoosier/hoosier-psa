@@ -18,6 +18,7 @@ import {
   invoiceVoidSchema,
   lineTotal,
   periodStartingIn,
+  qbInvoiceAdd,
   sumMoney,
   ticketInvoiceLines,
 } from "@hoosier/shared";
@@ -515,7 +516,7 @@ async function planTicketRun(
         ticketFee: l.kind === "fixed_fee",
         entryIds: l.entryIds,
         productId: null,
-        description: `${label} — ${what}`,
+        description: `Ticket # ${t.id}  ${t.summary} — ${what}`,
         periodStart: l.periodStart,
         periodEnd: l.periodEnd,
         quantity: l.quantity,
@@ -955,6 +956,64 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/invoices/:id", { config: { perm: "billing.invoice.read" } }, async (req) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     return loadInvoice(app.pool, id);
+  });
+
+  /**
+   * The QuickBooks request this invoice would produce. Read-only: nothing is queued or sent. Lets billing compare
+   * the output with what ConnectWise pushed, and shows missing QuickBooks links before cutover.
+   */
+  app.get("/invoices/:id/qbxml", { config: { perm: "billing.invoice.read" } }, async (req) => {
+    const { id } = z.object({ id: idSchema }).parse(req.params);
+    const inv = await loadInvoice(app.pool, id);
+    const extra = await app.pool.query<{
+      list_id: string | null;
+      terms: string | null;
+      tax_item: string | null;
+    }>(
+      `SELECT c.qb_customer_list_id AS list_id, bt.qb_terms AS terms, tc.qb_tax_code AS tax_item
+         FROM billing.invoice i
+         JOIN crm.company c ON c.id = i.company_id
+         LEFT JOIN catalog.billing_terms bt ON bt.id = i.billing_terms_id
+         LEFT JOIN catalog.tax_code tc ON tc.id = i.tax_code_id
+        WHERE i.id = $1`,
+      [id],
+    );
+    const items = await app.pool.query<{ id: string; item: string | null }>(
+      `SELECT l.id, p.qb_item_full_name AS item
+         FROM billing.invoice_line l LEFT JOIN catalog.product p ON p.id = l.product_id
+        WHERE l.invoice_id = $1 AND NOT l.is_void`,
+      [id],
+    );
+    const itemOf = new Map(items.rows.map((r) => [Number(r.id), r.item]));
+    const x = extra.rows[0];
+    const result = qbInvoiceAdd({
+      requestId: `invoice-${id}`,
+      refNumber: inv.invoiceNumber === null ? "DRAFT" : String(inv.invoiceNumber),
+      txnDate: inv.invoiceDate,
+      dueDate: inv.dueDate,
+      customerListId: x?.list_id ?? null,
+      termsName: x?.terms ?? null,
+      salesTaxItem: x?.tax_item ?? null,
+      taxExempt: inv.taxExempt,
+      taxTotal: inv.taxTotal,
+      poNumber: inv.poNumber,
+      memo: inv.notes,
+      lines: (inv.lines ?? [])
+        .filter((l) => itemOf.has(l.id))
+        .map((l) => ({
+          kind: l.kind,
+          description: l.description,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          amount: l.amount,
+          taxable: l.taxable,
+          itemFullName: itemOf.get(l.id) ?? null,
+          serviceDate: l.periodEnd,
+        })),
+    });
+    if (inv.invoiceNumber === null)
+      result.notes.push("A draft has no number yet; DRAFT stands in for the reference number");
+    return result;
   });
 
   app.patch("/invoices/:id", { config: { perm: "billing.invoice.write" } }, async (req) => {

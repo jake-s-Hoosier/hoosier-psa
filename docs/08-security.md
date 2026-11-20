@@ -112,7 +112,7 @@ and a compliance review first.
 - Rate limiting on authentication and on write endpoints; request size limits.
 - CSRF: same-site cookies plus a required custom header on mutating requests.
 - Dependencies: lockfile committed, Dependabot and `pnpm audit` in CI, minimal dependency footprint.
-- Cloudflare Access in front of the staff app; the QuickBooks endpoint is restricted to HSIN-QB01.
+- Cloudflare Access in front of the staff app; the QuickBooks endpoint is restricted to the QuickBooks server.
 
 ## Backup and recovery
 

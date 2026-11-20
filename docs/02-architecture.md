@@ -17,7 +17,7 @@ flowchart LR
     MIR[(cw_datawarehouse<br/>nightly CW mirror)]
   end
   CF[Cloudflare tunnel]
-  QB[QuickBooks Desktop<br/>HSIN-QB01]
+  QB[QuickBooks Desktop<br/>QuickBooks server]
   MAIL[Microsoft 365 mailbox<br/>inbound tickets via Graph, read-only]
   PAY[Stripe / WisePay /<br/>Global Payments]
   CW[ConnectWise<br/>until cutover]

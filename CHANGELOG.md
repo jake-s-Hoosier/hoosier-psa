@@ -10,6 +10,11 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- QuickBooks mapping spike. `docs/06` records how ConnectWise fills QuickBooks invoices (read from 8,630 recent
+  invoices): header fields, tax codes, terms, items, ticket-labor lines and the invoice number series. A pure
+  `qbInvoiceAdd` builder in `@hoosier/shared` turns an invoice into an `InvoiceAdd` request and lists what is missing,
+  with tests, and `GET /api/v1/billing/invoices/:id/qbxml` shows it for any invoice. Read-only: nothing is queued or
+  sent. Ticket invoice lines now start `Ticket # <n>` to match ConnectWise's text.
 - Ticket time invoicing. A billing run can now bill approved ticket time through a chosen date, one draft invoice per
   bill-to company. Each ticket has a billing method (actual rates, override rate, not to exceed, fixed fee) set on the
   ticket screen. Time is linked to its draft line so it cannot be billed twice, frozen when the run is posted, and

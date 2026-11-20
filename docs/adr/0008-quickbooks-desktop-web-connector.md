@@ -4,7 +4,7 @@ Status: Proposed (pending the milestone 2 verification spike)
 Date: 2026-11-19
 
 ## Context
-QuickBooks Desktop (on HSIN-QB01) has no cloud API. The PSA must create customers and invoices (later credit
+QuickBooks Desktop (on its own server) has no cloud API. The PSA must create customers and invoices (later credit
 memos and payments) in QuickBooks reliably, without duplicates, and reproduce ConnectWise's existing mapping.
 
 ## Decision (proposed)
