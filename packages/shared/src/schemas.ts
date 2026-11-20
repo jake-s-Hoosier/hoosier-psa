@@ -1652,3 +1652,125 @@ export const scheduleEntryUpdateSchema = z
   .partial()
   .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
 export type ScheduleEntryUpdate = z.infer<typeof scheduleEntryUpdateSchema>;
+
+// ---- Reports ----
+
+export const rmrGroupings = ["type", "vendor", "customer", "agreement"] as const;
+export type RmrGrouping = (typeof rmrGroupings)[number];
+
+export const rmrReportQuerySchema = z.object({
+  asOf: isoDate.optional(),
+  groupBy: z.enum(rmrGroupings).default("type"),
+  /** Additions with a margin below this percentage are flagged. */
+  floorPct: z.coerce.number().min(0).max(100).default(30),
+});
+
+export interface MarginFigures {
+  revenue: string;
+  cost: string;
+  margin: string;
+  marginPct: number | null;
+}
+
+export interface RmrGroup extends MarginFigures {
+  key: string;
+  name: string;
+  agreements: number;
+  additions: number;
+}
+
+export type RmrFlagKind = "no_cost" | "negative_margin" | "below_floor" | "no_active_additions";
+export interface RmrFlag {
+  kind: RmrFlagKind;
+  agreementId: number;
+  agreement: string;
+  companyId: number;
+  company: string;
+  description: string | null;
+  vendor: string | null;
+  revenue: string;
+  cost: string;
+  marginPct: number | null;
+}
+
+export interface RmrReport {
+  asOf: string;
+  groupBy: RmrGrouping;
+  floorPct: number;
+  totals: MarginFigures & { agreements: number; customers: number; additions: number };
+  groups: RmrGroup[];
+  flags: RmrFlag[];
+  flagsTruncated: boolean;
+}
+
+export const agreementServiceQuerySchema = z.object({
+  months: z.coerce.number().int().min(1).max(36).default(12),
+  asOf: isoDate.optional(),
+});
+
+export interface AgreementServiceRow {
+  agreementId: number;
+  agreement: string;
+  companyId: number;
+  company: string;
+  type: string;
+  /** Recurring revenue billed in the window, and what it cost. */
+  billed: string;
+  recurringCost: string;
+  /** Labor on the agreement's tickets that was not billed to the customer. */
+  hours: string;
+  absorbedLaborCost: string;
+  margin: string;
+  marginPct: number | null;
+}
+
+export interface AgreementServiceReport {
+  from: string;
+  to: string;
+  months: number;
+  rows: AgreementServiceRow[];
+  totals: {
+    billed: string;
+    recurringCost: string;
+    absorbedLaborCost: string;
+    margin: string;
+    marginPct: number | null;
+  };
+}
+
+export const projectMarginQuerySchema = z.object({
+  status: z.enum(["active", "closed", "all"]).default("active"),
+});
+
+export interface ProjectMarginRow {
+  projectId: number;
+  project: string;
+  companyId: number;
+  company: string;
+  status: ProjectStatus;
+  billingMethod: ProjectBillingMethod;
+  fee: string | null;
+  invoiced: string;
+  /** Share of a fixed fee invoiced so far. */
+  feeBilledPct: number | null;
+  budgetHours: string | null;
+  hours: string;
+  laborCost: string;
+  materialCost: string;
+  cost: string;
+  margin: string;
+  marginPct: number | null;
+  /** Billable time and materials not yet invoiced, at bill rates and prices. */
+  unbilledValue: string;
+}
+
+export interface ProjectMarginReport {
+  rows: ProjectMarginRow[];
+  totals: {
+    invoiced: string;
+    cost: string;
+    margin: string;
+    marginPct: number | null;
+    unbilledValue: string;
+  };
+}

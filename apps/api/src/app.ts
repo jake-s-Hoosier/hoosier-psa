@@ -32,6 +32,7 @@ import { salesOrderRoutes } from "./routes/orders.js";
 import { payPeriodRoutes } from "./routes/pay-periods.js";
 import { paymentRoutes } from "./routes/payments.js";
 import { projectRoutes } from "./routes/projects.js";
+import { reportRoutes } from "./routes/reports.js";
 import { salesRoutes } from "./routes/sales.js";
 import { systemRoutes } from "./routes/system.js";
 import { ticketChargeRoutes } from "./routes/ticket-charges.js";
@@ -218,6 +219,7 @@ export function buildApp({ pool, config }: AppDeps): FastifyInstance {
   app.register(ticketChargeRoutes, { prefix: "/api/v1/tickets" });
   app.register(projectRoutes, { prefix: "/api/v1/projects" });
   app.register(dispatchRoutes, { prefix: "/api/v1/dispatch" });
+  app.register(reportRoutes, { prefix: "/api/v1/reports" });
   app.register(salesRoutes, { prefix: "/api/v1/sales" });
   app.register(salesOrderRoutes, { prefix: "/api/v1/sales" });
   app.register(timeRoutes, { prefix: "/api/v1/time-entries" });

@@ -10,6 +10,11 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Reports (permission `reports.read`, Manager and Billing): recurring revenue and margin as of any date, grouped by
+  agreement type, vendor, customer or agreement, with flags for lines that have no cost, lose money or fall below a
+  margin floor, and for agreements that bill nothing; agreement service cost (billed recurring revenue less recurring
+  cost and labor not billed); project margin (posted invoices against labor and material cost, budget hours, unbilled
+  value). Each report downloads as CSV. Read-only: no report writes to the database.
 - Dispatch board. Migration 0022: `dispatch.schedule_entry` puts a person on a ticket for a block of time, or marks a
   meeting or time off. Week board with a row per field technician, an unscheduled queue of open tickets with no upcoming
   visit (most urgent first), add, move, reassign, confirm, complete, cancel and remove. Scheduling someone adds them as a

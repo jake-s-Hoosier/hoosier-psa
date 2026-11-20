@@ -18,7 +18,7 @@ Milestones are defined in [07-roadmap.md](07-roadmap.md).
 | Dispatch / scheduling | schedule entries 77,315 | `dispatch.*`: schedule entries, week board, unscheduled queue; calendar sync later | M3 | board built; calendar sync, drag-and-drop and phone view pending |
 | Project management | projects 2,162; phases 2,014; project tickets 4,450; project ticket notes 5,126 | `project.*`: phases, tickets, budgets, billing methods | M3 | planned |
 | Agreements / contracts | agreements 1,266; additions 828 | `agreement.*` ([05](05-billing-and-agreements.md)) | M2 | planned |
-| RMR billing | additions carry unit price, cost, margin | Billing runs from additions; cost-side margin tracking | M2 | planned |
+| RMR billing | additions carry unit price, cost, margin | Billing runs from additions; cost-side margin tracking; RMR report by type, vendor, customer or agreement with margin flags | M2 | built (vendor cost reconciliation planned) |
 | Invoicing | invoices 32,127; lines (mirror partial) | `billing.invoice*`, tax, terms, PDF, email | M2 | planned |
 | QuickBooks Desktop mapping | qb_* tables (customers 1,980; items 2,044; invoices 34,404) | QBXML via Web Connector ([06](06-accounting-integrations.md)) | M2 | planned |
 | Stripe / QuickBooks Online | not yet used | Provider interfaces, later | M5 | planned |

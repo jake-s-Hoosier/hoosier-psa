@@ -6,6 +6,7 @@ import type {
   AgreementAddition,
   AgreementCreate,
   AgreementDetail,
+  AgreementServiceReport,
   AgreementUpdate,
   BillingMilestone,
   BillingRun,
@@ -44,7 +45,10 @@ import type {
   ProjectBilling,
   ProjectBillingMode,
   ProjectCreate,
+  ProjectMarginReport,
   ProjectUpdate,
+  RmrGrouping,
+  RmrReport,
   SalesOrder,
   SalesOrderCreate,
   SalesOrderLine,
@@ -863,3 +867,23 @@ export const updateScheduleEntry = (id: number, body: ScheduleEntryUpdate) =>
   request<ScheduleResult>("PATCH", `/api/v1/dispatch/entries/${id}`, body);
 export const deleteScheduleEntry = (id: number) =>
   request<void>("DELETE", `/api/v1/dispatch/entries/${id}`);
+
+// ---- Reports ----
+export const getRmrReport = (
+  p: { asOf?: string; groupBy: RmrGrouping; floorPct: number },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ groupBy: p.groupBy, floorPct: String(p.floorPct) });
+  if (p.asOf) params.set("asOf", p.asOf);
+  return get<RmrReport>(`/api/v1/reports/rmr?${params}`, signal);
+};
+export const getAgreementServiceReport = (
+  p: { months: number; asOf?: string },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ months: String(p.months) });
+  if (p.asOf) params.set("asOf", p.asOf);
+  return get<AgreementServiceReport>(`/api/v1/reports/agreement-service?${params}`, signal);
+};
+export const getProjectMarginReport = (status: "active" | "closed" | "all", signal?: AbortSignal) =>
+  get<ProjectMarginReport>(`/api/v1/reports/projects?status=${status}`, signal);

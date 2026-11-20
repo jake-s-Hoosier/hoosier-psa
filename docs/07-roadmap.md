@@ -32,7 +32,7 @@ shadow environment; payroll export for two consecutive periods matches the curre
 - Agreement types, agreements, additions with effective dating and proration (done: screen, rules and tests); coverage rules applied to ticket time (done).
 - Agreement billing runs with draft review, gap-free posting and voids (done; screen, rules and tests). Ticket time invoicing with per-ticket billing methods (done). Ticket materials and expenses billed with the ticket run (done). Manual payments applied to invoices (done). Invoice PDF (done). Credit memos (done). Projects with phases, project tickets and project invoicing: time and materials, deposits, progress and final invoices (done). Still to come: emailing invoices, and payment providers with autopay (M5).
 - **QuickBooks mapping spike**, then the Web Connector export with queue, idempotency and reconciliation ([06](06-accounting-integrations.md)).
-- RMR and margin reports; recurring-vendor cost comparison.
+- RMR and margin reports, agreement service cost and project margin (done; screen, CSV export and tests). Still to come: recurring-vendor cost comparison against QuickBooks (needs the QuickBooks export).
 
 **Exit:** two full monthly cycles run in parallel with CW; every invoice reconciles to CW within explained
 differences; QuickBooks receives and matches invoices with no manual fixes.
