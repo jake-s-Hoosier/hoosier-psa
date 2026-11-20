@@ -18,7 +18,8 @@
     "db:migrate": "pnpm --filter @hoosier/db migrate",
     "db:status": "pnpm --filter @hoosier/db status",
     "dev:api": "pnpm --filter @hoosier/api dev",
-    "dev:web": "pnpm --filter @hoosier/web dev"
+    "dev:web": "pnpm --filter @hoosier/web dev",
+    "demo:seed": "pnpm --filter @hoosier/api demo:seed"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
