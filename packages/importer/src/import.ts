@@ -807,6 +807,13 @@ async function importTicketLookups(
   for (const p of prios.rows) {
     report.count("priorities").read += 1;
     const color = p.color && /^#[0-9a-fA-F]{6}$/.test(p.color) ? p.color : "#6b7280";
+    // A starter priority with the same name (seeded by migration 0005) is adopted, not duplicated.
+    await db.query(
+      `UPDATE service.priority SET legacy_cw_priority_id = $2
+        WHERE name = $1 AND legacy_cw_priority_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM service.priority WHERE legacy_cw_priority_id = $2)`,
+      [p.name, p.id],
+    );
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO service.priority (name, sort_order, color, legacy_cw_priority_id) VALUES ($1,$2,$3,$4)
        ON CONFLICT (legacy_cw_priority_id) DO UPDATE
@@ -911,6 +918,13 @@ async function importTicketLookups(
   );
   for (const s of sources.rows) {
     report.count("ticket sources").read += 1;
+    // The starter "Email" source (migration 0011) is adopted when CW has a source of the same name.
+    await db.query(
+      `UPDATE service.ticket_source SET legacy_cw_source_id = $2
+        WHERE name = $1 AND legacy_cw_source_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM service.ticket_source WHERE legacy_cw_source_id = $2)`,
+      [s.name, s.id],
+    );
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO service.ticket_source (name, legacy_cw_source_id) VALUES ($1,$2)
        ON CONFLICT (legacy_cw_source_id) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
