@@ -24,6 +24,9 @@ export const PERMISSIONS = {
   "sales.order.read": "View sales orders and billing milestones",
   "sales.order.write":
     "Create and change sales orders and billing milestones; converting to a project also needs project.write",
+  "procurement.read": "View purchase orders and receipts",
+  "procurement.write": "Create and change purchase orders, place them, and cancel or close them",
+  "procurement.receive": "Record what arrived against a purchase order",
   "project.read": "View projects, phases and their billing",
   "project.write": "Create and change projects and phases",
   "billing.agreement.read": "View agreements and their recurring lines",
@@ -63,6 +66,9 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "sales.opportunity.write",
     "sales.order.read",
     "sales.order.write",
+    "procurement.read",
+    "procurement.write",
+    "procurement.receive",
     "timekeeping.time.read_own",
     "timekeeping.time.write_own",
     "timekeeping.time.read_all",
@@ -80,6 +86,8 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "system.audit.read",
   ],
   Dispatcher: [
+    "procurement.read",
+    "procurement.receive",
     "dispatch.read",
     "dispatch.write",
     "crm.company.read",
@@ -99,6 +107,7 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "timekeeping.time.write_own",
   ],
   Sales: [
+    "procurement.read",
     "crm.company.read",
     "crm.company.write",
     "service.ticket.read",
@@ -110,6 +119,9 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "billing.agreement.read",
   ],
   Billing: [
+    "procurement.read",
+    "procurement.write",
+    "procurement.receive",
     "reports.read",
     "crm.company.read",
     "service.ticket.read",

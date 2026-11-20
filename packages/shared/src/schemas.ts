@@ -1762,6 +1762,9 @@ export interface ProjectMarginRow {
   marginPct: number | null;
   /** Billable time and materials not yet invoiced, at bill rates and prices. */
   unbilledValue: string;
+  /** Vendor cost of purchase orders for the project: received so far, and still on order. Shown beside the margin. */
+  vendorReceived: string;
+  vendorOnOrder: string;
 }
 
 export interface ProjectMarginReport {
@@ -1774,3 +1777,133 @@ export interface ProjectMarginReport {
     unbilledValue: string;
   };
 }
+
+// ---- Procurement ----
+export const purchaseOrderStatuses = [
+  "draft",
+  "ordered",
+  "partial",
+  "received",
+  "closed",
+  "canceled",
+] as const;
+export type PurchaseOrderStatus = (typeof purchaseOrderStatuses)[number];
+
+export interface PurchaseOrder {
+  id: number;
+  poNumber: string;
+  vendorCompanyId: number;
+  vendor: string;
+  status: PurchaseOrderStatus;
+  projectId: number | null;
+  project: string | null;
+  salesOrderId: number | null;
+  salesOrder: string | null;
+  ticketId: number | null;
+  vendorReference: string | null;
+  shipTo: string | null;
+  expectedDate: string | null;
+  orderedAt: string | null;
+  shippingCost: string;
+  notes: string | null;
+  /** Sum of the line costs, before shipping. */
+  linesTotal: string;
+  total: string;
+  /** Cost of what has arrived, and of what is still expected. */
+  receivedValue: string;
+  openValue: string;
+  createdAt: string;
+}
+
+export interface PurchaseOrderLine {
+  id: number;
+  poId: number;
+  productId: number | null;
+  description: string;
+  quantity: string;
+  unitCost: string;
+  lineTotal: string;
+  quantityReceived: string;
+  quantityOutstanding: string;
+  sortOrder: number;
+}
+
+export interface ReceiptLine {
+  id: number;
+  poLineId: number;
+  description: string;
+  quantity: string;
+  serialNumbers: string | null;
+}
+
+export interface Receipt {
+  id: number;
+  poId: number;
+  receivedOn: string;
+  reference: string | null;
+  notes: string | null;
+  receivedBy: string | null;
+  lines: ReceiptLine[];
+}
+
+export const purchaseOrderCreateSchema = z.object({
+  vendorCompanyId: idSchema,
+  projectId: idSchema.optional(),
+  salesOrderId: idSchema.optional(),
+  ticketId: idSchema.optional(),
+  vendorReference: z.string().trim().max(100).optional(),
+  shipTo: z.string().trim().max(500).optional(),
+  expectedDate: isoDate.optional(),
+  shippingCost: optMoney.default(0),
+  notes: z.string().trim().max(10000).optional(),
+});
+export type PurchaseOrderCreate = z.input<typeof purchaseOrderCreateSchema>;
+
+export const purchaseOrderUpdateSchema = z
+  .object({
+    projectId: idSchema.nullable(),
+    salesOrderId: idSchema.nullable(),
+    ticketId: idSchema.nullable(),
+    vendorReference: z.string().trim().max(100).nullable(),
+    shipTo: z.string().trim().max(500).nullable(),
+    expectedDate: isoDate.nullable(),
+    shippingCost: optMoney,
+    notes: z.string().trim().max(10000).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type PurchaseOrderUpdate = z.infer<typeof purchaseOrderUpdateSchema>;
+
+export const purchaseOrderLineSchema = z.object({
+  productId: idSchema.optional(),
+  description: z.string().trim().min(1).max(500).optional(),
+  quantity: z.number().positive().max(1_000_000),
+  unitCost: z.number().min(0).max(9_999_999).optional(),
+});
+export type PurchaseOrderLineInput = z.input<typeof purchaseOrderLineSchema>;
+
+export const purchaseOrderLineUpdateSchema = z
+  .object({
+    description: z.string().trim().min(1).max(500),
+    quantity: z.number().positive().max(1_000_000),
+    unitCost: z.number().min(0).max(9_999_999),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+
+export const receiptCreateSchema = z.object({
+  receivedOn: isoDate.optional(),
+  reference: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(5000).optional(),
+  lines: z
+    .array(
+      z.object({
+        poLineId: idSchema,
+        quantity: z.number().positive().max(1_000_000),
+        serialNumbers: z.string().trim().max(5000).optional(),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+export type ReceiptCreate = z.input<typeof receiptCreateSchema>;

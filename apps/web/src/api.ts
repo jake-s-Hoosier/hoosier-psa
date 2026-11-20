@@ -47,6 +47,13 @@ import type {
   ProjectCreate,
   ProjectMarginReport,
   ProjectUpdate,
+  PurchaseOrder,
+  PurchaseOrderCreate,
+  PurchaseOrderLine,
+  PurchaseOrderLineInput,
+  PurchaseOrderUpdate,
+  Receipt,
+  ReceiptCreate,
   RmrGrouping,
   RmrReport,
   SalesOrder,
@@ -887,3 +894,39 @@ export const getAgreementServiceReport = (
 };
 export const getProjectMarginReport = (status: "active" | "closed" | "all", signal?: AbortSignal) =>
   get<ProjectMarginReport>(`/api/v1/reports/projects?status=${status}`, signal);
+
+// ---- Purchasing ----
+export interface PurchaseOrderDetail {
+  order: PurchaseOrder;
+  lines: PurchaseOrderLine[];
+  receipts: Receipt[];
+}
+export const listPurchaseOrders = (
+  p: { status?: string; projectId?: number; vendorId?: number },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ status: p.status ?? "open" });
+  if (p.projectId) params.set("projectId", String(p.projectId));
+  if (p.vendorId) params.set("vendorId", String(p.vendorId));
+  return get<{ items: PurchaseOrder[] }>(`/api/v1/procurement/orders?${params}`, signal);
+};
+export const getPurchaseOrder = (id: number, signal?: AbortSignal) =>
+  get<PurchaseOrderDetail>(`/api/v1/procurement/orders/${id}`, signal);
+export const createPurchaseOrder = (body: PurchaseOrderCreate) =>
+  request<PurchaseOrder>("POST", "/api/v1/procurement/orders", body);
+export const updatePurchaseOrder = (id: number, body: PurchaseOrderUpdate) =>
+  request<PurchaseOrder>("PATCH", `/api/v1/procurement/orders/${id}`, body);
+export const addPurchaseOrderLine = (id: number, body: PurchaseOrderLineInput) =>
+  request<PurchaseOrderLine>("POST", `/api/v1/procurement/orders/${id}/lines`, body);
+export const deletePurchaseOrderLine = (lineId: number) =>
+  request<void>("DELETE", `/api/v1/procurement/lines/${lineId}`);
+export const purchaseOrderAction = (id: number, action: "place" | "cancel" | "close") =>
+  request<PurchaseOrder>("POST", `/api/v1/procurement/orders/${id}/${action}`);
+export const receivePurchaseOrder = (id: number, body: ReceiptCreate) =>
+  request<{ order: PurchaseOrder; receipts: Receipt[] }>(
+    "POST",
+    `/api/v1/procurement/orders/${id}/receipts`,
+    body,
+  );
+export const deleteReceipt = (id: number) =>
+  request<void>("DELETE", `/api/v1/procurement/receipts/${id}`);

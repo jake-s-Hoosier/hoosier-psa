@@ -10,6 +10,10 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Purchasing: purchase orders to vendors (permissions `procurement.read`, `procurement.write`, `procurement.receive`).
+  Draft, mark as ordered, receive in parts with packing slip and serial numbers, close short or cancel. A PO can be
+  tied to a project, sales order or ticket; the project margin report shows vendor cost received and still on order.
+  Dispatchers can receive but not edit orders. Nothing is sent to vendors or QuickBooks.
 - Reports (permission `reports.read`, Manager and Billing): recurring revenue and margin as of any date, grouped by
   agreement type, vendor, customer or agreement, with flags for lines that have no cost, lose money or fall below a
   margin floor, and for agreements that bill nothing; agreement service cost (billed recurring revenue less recurring

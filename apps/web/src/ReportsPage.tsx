@@ -466,6 +466,8 @@ function ProjectsTab() {
                     "Margin",
                     "Margin %",
                     "Unbilled",
+                    "Vendor POs received",
+                    "Vendor POs on order",
                   ],
                   data.rows.map((r) => [
                     r.project,
@@ -479,6 +481,8 @@ function ProjectsTab() {
                     r.margin,
                     r.marginPct,
                     r.unbilledValue,
+                    r.vendorReceived,
+                    r.vendorOnOrder,
                   ]),
                 )
               }
@@ -490,6 +494,8 @@ function ProjectsTab() {
         <p className="muted small">
           Invoiced is posted invoices only. Cost is time at each person's cost rate plus material
           cost on the project's tickets. Unbilled is billable time and materials not yet invoiced.
+          Vendor POs are shown beside the margin, not added to it, because the same materials may
+          already be on a ticket.
         </p>
       </div>
       {error && <div className="state error">{error}</div>}
@@ -513,6 +519,7 @@ function ProjectsTab() {
                 <th className="num">Margin</th>
                 <th className="num">Margin %</th>
                 <th className="num">Unbilled</th>
+                <th className="num">Vendor POs received / on order</th>
               </tr>
             </thead>
             <tbody>
@@ -545,6 +552,9 @@ function ProjectsTab() {
                       {pct(r.marginPct)}
                     </td>
                     <td className="num">{usd(r.unbilledValue)}</td>
+                    <td className="num">
+                      {usd(r.vendorReceived)} / {usd(r.vendorOnOrder)}
+                    </td>
                   </tr>
                 );
               })}

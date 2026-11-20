@@ -320,6 +320,8 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
       material_cost: string;
       unbilled_labor: string;
       unbilled_materials: string;
+      vendor_received: string;
+      vendor_on_order: string;
     }>(
       `SELECT p.id, p.name, p.company_id, c.name AS company, p.status, p.billing_method, p.billing_amount,
               p.budget_hours,
@@ -341,7 +343,23 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
                            AND e.billable = 'billable'), 0) AS unbilled_labor,
               COALESCE((SELECT sum(ch.quantity * ch.unit_price) FROM service.ticket_charge ch
                          JOIN service.ticket t ON t.id = ch.ticket_id
-                         WHERE t.project_id = p.id AND ch.invoice_id IS NULL AND ch.billable = 'billable'), 0) AS unbilled_materials
+                         WHERE t.project_id = p.id AND ch.invoice_id IS NULL AND ch.billable = 'billable'), 0) AS unbilled_materials,
+              COALESCE((SELECT sum(rl.quantity * pl.unit_cost)
+                          FROM procurement.purchase_order po
+                          LEFT JOIN service.ticket t ON t.id = po.ticket_id
+                          LEFT JOIN sales.sales_order so ON so.id = po.sales_order_id
+                          JOIN procurement.purchase_order_line pl ON pl.po_id = po.id
+                          JOIN procurement.receipt_line rl ON rl.po_line_id = pl.id
+                         WHERE po.status <> 'canceled'
+                           AND COALESCE(po.project_id, t.project_id, so.project_id) = p.id), 0) AS vendor_received,
+              COALESCE((SELECT sum(GREATEST(pl.quantity - COALESCE((SELECT sum(rl.quantity)
+                                      FROM procurement.receipt_line rl WHERE rl.po_line_id = pl.id), 0), 0) * pl.unit_cost)
+                          FROM procurement.purchase_order po
+                          LEFT JOIN service.ticket t ON t.id = po.ticket_id
+                          LEFT JOIN sales.sales_order so ON so.id = po.sales_order_id
+                          JOIN procurement.purchase_order_line pl ON pl.po_id = po.id
+                         WHERE po.status IN ('ordered', 'partial')
+                           AND COALESCE(po.project_id, t.project_id, so.project_id) = p.id), 0) AS vendor_on_order
          FROM project.project p JOIN crm.company c ON c.id = p.company_id
         WHERE ${where}
         ORDER BY p.id DESC`,
@@ -379,6 +397,8 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
           .plus(r.unbilled_materials)
           .toDecimalPlaces(2)
           .toFixed(2),
+        vendorReceived: money(r.vendor_received),
+        vendorOnOrder: money(r.vendor_on_order),
       };
     });
     const sum = (f: (r: ProjectMarginRow) => string) =>

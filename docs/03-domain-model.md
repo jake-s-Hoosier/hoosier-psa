@@ -77,7 +77,10 @@ and [06](06-accounting-integrations.md).
 Schedule entries (a person on a ticket for a block of time, or a meeting or time off); overlaps for one person are allowed but reported and flagged, since dispatchers sometimes double-book on purpose; calendar sync state later;
 projects, phases, project tickets, budgets, billing methods (fixed fee, milestone, time and materials).
 
-### `sales`, `procurement` *(planned, milestone 4)*
+### `procurement` *(built, milestone 4)*
+`purchase_order` (draft, ordered, partial, received, closed short, canceled; optional links to a project, sales order and ticket), `purchase_order_line`, `receipt` and `receipt_line`. Quantity received is always computed from receipts. Only companies flagged as vendors can be ordered from. Receiving more than ordered is refused. Vendor bills (accounts payable) stay in QuickBooks.
+
+### `sales` *(built)*; quotes arrive through `sales.external_ref` *(planned adapters)*
 Opportunities, stages, quotes with versioned line items, activities; purchase orders, receipts,
 vendor costs.
 

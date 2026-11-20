@@ -10,6 +10,7 @@ import { LoginPage } from "./LoginPage";
 import { MailPage } from "./MailPage";
 import { OpportunitiesPage } from "./OpportunitiesPage";
 import { ProjectsPage } from "./ProjectsPage";
+import { PurchasingPage } from "./PurchasingPage";
 import { ReportsPage } from "./ReportsPage";
 import { TicketsPage } from "./TicketsPage";
 import { TimePage } from "./TimePage";
@@ -34,6 +35,7 @@ const NAV = [
   { id: "time", label: "Time", ready: true, perm: "timekeeping.time.read_own" },
   { id: "dispatch", label: "Dispatch", ready: true, perm: "dispatch.read" },
   { id: "projects", label: "Projects", ready: true, perm: "project.read" },
+  { id: "purchasing", label: "Purchasing", ready: true, perm: "procurement.read" },
   { id: "agreements", label: "Agreements", ready: true, perm: "billing.agreement.read" },
   { id: "billing", label: "Billing", ready: true, perm: "billing.invoice.read" },
   { id: "reports", label: "Reports", ready: true, perm: "reports.read" },
@@ -208,6 +210,13 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
           )}
           {page === "billing" && can("billing.invoice.read") && (
             <BillingPage can={can} routeId={route.id} />
+          )}
+          {page === "purchasing" && can("procurement.read") && (
+            <PurchasingPage
+              route={route}
+              canWrite={can("procurement.write")}
+              canReceive={can("procurement.receive")}
+            />
           )}
           {page === "reports" && can("reports.read") && <ReportsPage />}
           {page === "dispatch" && can("dispatch.read") && (
