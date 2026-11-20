@@ -9,6 +9,7 @@ import {
   roundingRuleFor,
   timeEntryCreateSchema,
   timeEntryListQuerySchema,
+  timeEntryUpdateSchema,
   timerStartSchema,
   timerStopSchema,
   workTypeBillRate,
@@ -22,7 +23,9 @@ interface TimeRow {
   id: string;
   member_id: string;
   company_id: string;
+  company: string;
   ticket_id: string | null;
+  ticket_summary: string | null;
   work_role_id: string;
   work_type_id: string;
   work_date: string; // selected as text to avoid timezone shifts
@@ -38,7 +41,11 @@ interface TimeRow {
 }
 
 const SELECT_TIME = `
-  SELECT id, member_id, company_id, ticket_id, work_role_id, work_type_id,
+  SELECT id, member_id, company_id,
+         (SELECT name FROM crm.company WHERE id = timekeeping.time_entry.company_id) AS company,
+         ticket_id,
+         (SELECT summary FROM service.ticket WHERE id = timekeeping.time_entry.ticket_id) AS ticket_summary,
+         work_role_id, work_type_id,
          to_char(work_date, 'YYYY-MM-DD') AS work_date, started_at, ended_at, is_timer,
          actual_hours, billed_hours, billable, bill_rate, status, notes
     FROM timekeeping.time_entry`;
@@ -48,7 +55,9 @@ function toEntry(r: TimeRow): TimeEntry {
     id: Number(r.id),
     memberId: Number(r.member_id),
     companyId: Number(r.company_id),
+    company: r.company,
     ticketId: r.ticket_id === null ? null : Number(r.ticket_id),
+    ticketSummary: r.ticket_summary,
     workRoleId: Number(r.work_role_id),
     workTypeId: Number(r.work_type_id),
     workDate: r.work_date,
@@ -296,9 +305,22 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
     const body = timeEntryCreateSchema.parse(req.body);
     const memberId = req.memberId as number;
     const entry = await withActor(app.pool, memberId, async (client) => {
-      const companyId = await ticketCompany(client, body.ticketId);
+      const ticketId = body.ticketId ?? null;
+      let companyId: number;
+      if (ticketId !== null) {
+        companyId = await ticketCompany(client, ticketId);
+      } else {
+        companyId = body.companyId as number;
+        const exists = await client.query(
+          "SELECT 1 FROM crm.company WHERE id = $1 AND deleted_at IS NULL",
+          [companyId],
+        );
+        if (!exists.rowCount)
+          throw new HttpError(422, "Invalid company", `Company ${companyId} not found`);
+      }
       const pricing = await pricingFor(client, memberId, body.workRoleId, body.workTypeId);
-      const billable = body.billable ?? pricing.billTime;
+      // Time with no ticket has nothing to bill against; it is still paid time.
+      const billable = ticketId === null ? "do_not_bill" : (body.billable ?? pricing.billTime);
       const periodId = await periodIdFor(client, body.workDate);
       await assertPeriodOpen(client, periodId);
       const started = body.startedAt ? new Date(body.startedAt) : null;
@@ -313,12 +335,12 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
            (member_id, company_id, charge_type, ticket_id, work_role_id, work_type_id, work_date,
             started_at, ended_at, actual_hours, billed_hours, billable, bill_rate, cost_rate,
             notes, internal_notes, pay_period_id)
-         VALUES ($1,$2,'service_ticket',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         VALUES ($1,$2,$17,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          RETURNING id`,
         [
           memberId,
           companyId,
-          body.ticketId,
+          ticketId,
           body.workRoleId,
           body.workTypeId,
           body.workDate,
@@ -332,6 +354,7 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
           body.notes ?? null,
           body.internalNotes ?? null,
           periodId,
+          ticketId === null ? "non_ticket" : "service_ticket",
         ],
       );
       const full = await client.query<TimeRow>(`${SELECT_TIME} WHERE id = $1`, [rows[0]?.id]);
@@ -341,6 +364,94 @@ export const timeRoutes: FastifyPluginAsync = async (app) => {
       .status(201)
       .header("location", `/api/v1/time-entries/${entry.id}`)
       .send(toEntry(entry));
+  });
+
+  /** Edits an open entry. Submitted or approved time has to be recalled first; locked periods refuse. */
+  app.patch("/:id", { config: { perm: "timekeeping.time.write_own" } }, async (req) => {
+    const { id } = z.object({ id: idSchema }).parse(req.params);
+    const body = timeEntryUpdateSchema.parse(req.body);
+    const memberId = req.memberId as number;
+    const entry = await withActor(app.pool, memberId, async (client) => {
+      const { rows } = await client.query<{
+        member_id: string;
+        status: string;
+        is_timer: boolean;
+        ticket_id: string | null;
+        work_role_id: string;
+        work_type_id: string;
+        work_date: string;
+        actual_hours: string;
+        billable: string;
+      }>(
+        `SELECT member_id, status, is_timer, ticket_id, work_role_id, work_type_id,
+                to_char(work_date, 'YYYY-MM-DD') AS work_date, actual_hours, billable
+           FROM timekeeping.time_entry WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      const cur = rows[0];
+      if (!cur || cur.status === "void")
+        throw new HttpError(404, "Not Found", `Time entry ${id} not found`);
+      if (
+        Number(cur.member_id) !== memberId &&
+        !req.permissions.has("timekeeping.time.write_all")
+      ) {
+        throw new HttpError(403, "Forbidden", "You can only change your own time entries");
+      }
+      if (cur.is_timer)
+        throw new HttpError(409, "Timer running", "Stop the timer before editing this entry");
+      if (cur.status !== "open") {
+        throw new HttpError(
+          409,
+          "Not open",
+          `This entry is ${cur.status}; recall the week to change it`,
+        );
+      }
+      const workDate = body.workDate ?? cur.work_date;
+      const periodId = await periodIdFor(client, workDate);
+      await assertPeriodOpen(client, periodId);
+      const roleId = body.workRoleId ?? Number(cur.work_role_id);
+      const typeId = body.workTypeId ?? Number(cur.work_type_id);
+      const owner = Number(cur.member_id);
+      const pricing = await pricingFor(client, owner, roleId, typeId);
+      const hasTicket = cur.ticket_id !== null;
+      const billable = hasTicket ? (body.billable ?? cur.billable) : "do_not_bill";
+      const exact = body.hours ?? Number(cur.actual_hours);
+      const billed = billable === "billable" ? billedHours(exact, pricing.rule) : 0;
+      // Hours given by hand replace any recorded start and end; the times no longer describe the entry.
+      const timesCleared = body.hours !== undefined;
+      await client.query(
+        `UPDATE timekeeping.time_entry
+            SET work_date = $2, work_role_id = $3, work_type_id = $4, actual_hours = $5,
+                billed_hours = $6, billable = $7, bill_rate = $8, cost_rate = $9,
+                pay_period_id = $10,
+                started_at = CASE WHEN $11 THEN NULL ELSE started_at END,
+                ended_at = CASE WHEN $11 THEN NULL ELSE ended_at END,
+                notes = CASE WHEN $12 THEN $13 ELSE notes END,
+                internal_notes = CASE WHEN $14 THEN $15 ELSE internal_notes END,
+                updated_at = now()
+          WHERE id = $1`,
+        [
+          id,
+          workDate,
+          roleId,
+          typeId,
+          round2(exact),
+          billed,
+          billable,
+          pricing.billRate,
+          pricing.costRate,
+          periodId,
+          timesCleared,
+          body.notes !== undefined,
+          body.notes ?? null,
+          body.internalNotes !== undefined,
+          body.internalNotes ?? null,
+        ],
+      );
+      const full = await client.query<TimeRow>(`${SELECT_TIME} WHERE id = $1`, [id]);
+      return full.rows[0] as TimeRow;
+    });
+    return toEntry(entry);
   });
 
   /** Voiding keeps the row for the audit trail; hard deletes of time are not offered. */

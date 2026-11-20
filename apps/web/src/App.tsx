@@ -6,6 +6,7 @@ import { CompanyPage } from "./CompanyPage";
 import { LoginPage } from "./LoginPage";
 import { MailPage } from "./MailPage";
 import { TicketsPage } from "./TicketsPage";
+import { TimePage } from "./TimePage";
 import { TimerBar } from "./TimerBar";
 import {
   ApiError,
@@ -23,7 +24,7 @@ import { navigate, useRoute } from "./router";
 const NAV = [
   { id: "companies", label: "Companies", ready: true, perm: "crm.company.read" },
   { id: "tickets", label: "Service tickets", ready: true, perm: "service.ticket.read" },
-  { id: "time", label: "Time", ready: false },
+  { id: "time", label: "Time", ready: true, perm: "timekeeping.time.read_own" },
   { id: "dispatch", label: "Dispatch", ready: false },
   { id: "projects", label: "Projects", ready: false },
   { id: "agreements", label: "Agreements", ready: false },
@@ -184,6 +185,14 @@ function Shell({ me, onSignOut }: { me: AuthView | null; onSignOut: () => void }
               memberId={me?.member.id ?? null}
               routeTicketId={route.id}
               filters={filters}
+            />
+          )}
+          {page === "time" && can("timekeeping.time.read_own") && (
+            <TimePage
+              can={can}
+              lookups={lookups}
+              memberId={me?.member.id ?? null}
+              onTimerChange={refreshTimer}
             />
           )}
           {page === "mail" && can("service.mailbox.manage") && <MailPage />}

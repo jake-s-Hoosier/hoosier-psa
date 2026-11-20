@@ -556,3 +556,94 @@ a.link:hover {
   align-items: center;
   margin-bottom: var(--space-2);
 }
+
+/* Time screen */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: var(--space-4);
+}
+.tab {
+  padding: 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+.tab[aria-selected="true"] {
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+.toolbar {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.toolbar-end {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-2);
+}
+.week-label {
+  margin: 0 var(--space-2);
+}
+.time-day header {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+.time-day table {
+  width: 100%;
+}
+td.num,
+th.num {
+  text-align: right;
+  white-space: nowrap;
+}
+td.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.btn.small {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+.small {
+  font-size: 12px;
+}
+.badge.status-submitted {
+  background: #fff4d6;
+}
+.badge.status-approved,
+.badge.status-locked {
+  background: #dcf3e1;
+}
+.badge.status-exported {
+  background: #dde8fb;
+}
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+tr.selected td {
+  background: var(--color-bg);
+}
+.warnings {
+  margin: 0 0 var(--space-3);
+  padding-left: 18px;
+  color: #8a5a00;
+}
+.split:has(.wide-detail) {
+  grid-template-columns: minmax(0, 1fr) 560px;
+}
+.dialog label.radio {
+  flex-direction: row;
+  align-items: center;
+}

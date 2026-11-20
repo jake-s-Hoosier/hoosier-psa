@@ -6,11 +6,15 @@ import type {
   CompanyUpdate,
   Contact,
   ContactInput,
+  PayPeriod,
+  PayrollRow,
   Site,
   SiteInput,
   Ticket,
   TicketNote,
   TimeEntry,
+  TimeEntryCreate,
+  TimeEntryUpdate,
 } from "@hoosier/shared";
 
 export interface ListResponse<T> {
@@ -401,3 +405,80 @@ export const addCompanyNote = (companyId: number, body: CompanyNoteCreate) =>
 
 export const listCompanyTime = (companyId: number, signal?: AbortSignal) =>
   get<ListResponse<TimeEntry>>(`/api/v1/time-entries?companyId=${companyId}&limit=25`, signal);
+
+// ---- Time: timesheet, approvals, pay periods ----
+export const listTimeEntries = (
+  from: string,
+  to: string,
+  memberId?: number,
+  signal?: AbortSignal,
+) =>
+  get<ListResponse<TimeEntry>>(
+    `/api/v1/time-entries?from=${from}&to=${to}&limit=200${memberId ? `&memberId=${memberId}` : ""}`,
+    signal,
+  );
+export const createTimeEntry = (body: TimeEntryCreate) =>
+  request<TimeEntry>("POST", "/api/v1/time-entries", body);
+export const updateTimeEntry = (id: number, body: TimeEntryUpdate) =>
+  request<TimeEntry>("PATCH", `/api/v1/time-entries/${id}`, body);
+export const deleteTimeEntry = (id: number) =>
+  request<undefined>("DELETE", `/api/v1/time-entries/${id}`);
+
+export const submitTimesheet = (from: string, to: string) =>
+  request<{ submitted: number }>("POST", "/api/v1/timesheets/submit", { from, to });
+export const recallTimesheet = (from: string, to: string) =>
+  request<{ recalled: number }>("POST", "/api/v1/timesheets/recall", { from, to });
+export const approveTimesheet = (memberId: number, from: string, to: string) =>
+  request<{ approved: number }>("POST", "/api/v1/timesheets/approve", { memberId, from, to });
+
+export interface TimesheetSummaryRow {
+  memberId: number;
+  identifier: string;
+  status: string;
+  entries: number;
+  hours: number;
+}
+export const timesheetSummary = (from: string, to: string, signal?: AbortSignal) =>
+  get<{ items: TimesheetSummaryRow[] }>(`/api/v1/timesheets/summary?from=${from}&to=${to}`, signal);
+
+export interface PayrollPreview {
+  period: PayPeriod;
+  unsubmittedEntries: number;
+  items: PayrollRow[];
+  warnings: string[];
+}
+export const listPayPeriods = (signal?: AbortSignal) =>
+  get<{ items: PayPeriod[] }>("/api/v1/pay-periods", signal);
+export const generatePayPeriods = (year: number, month: number) =>
+  request<{ items: PayPeriod[] }>("POST", "/api/v1/pay-periods/generate", { year, month });
+export const getPayrollPreview = (id: number, signal?: AbortSignal) =>
+  get<PayrollPreview>(`/api/v1/pay-periods/${id}/payroll`, signal);
+export const lockPayPeriod = (id: number) =>
+  request<PayPeriod>("POST", `/api/v1/pay-periods/${id}/lock`);
+
+/** The first export marks the period exported; the file itself is handed to the browser as a download. */
+export async function exportPayPeriodCsv(id: number): Promise<void> {
+  const res = await fetch(`/api/v1/pay-periods/${id}/export?format=csv`, {
+    method: "POST",
+    headers: { "x-dev-member-id": DEV_MEMBER_ID, "x-requested-with": "hoosier-psa" },
+  });
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const p = (await res.json()) as { title?: string; detail?: string };
+      message = p.detail ?? p.title ?? message;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, message);
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1];
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name ?? `payroll-${id}.csv`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

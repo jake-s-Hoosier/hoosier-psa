@@ -302,7 +302,9 @@ export const timeEntrySchema = z.object({
   id: z.number().int(),
   memberId: z.number().int(),
   companyId: z.number().int(),
+  company: z.string(),
   ticketId: z.number().int().nullable(),
+  ticketSummary: z.string().nullable(),
   workRoleId: z.number().int(),
   workTypeId: z.number().int(),
   workDate: z.string(),
@@ -332,7 +334,9 @@ export const timerStopSchema = z.object({
 
 export const timeEntryCreateSchema = z
   .object({
-    ticketId: idSchema,
+    /** Time on a ticket. Leave out for non-ticket time (shop, training, admin) and give companyId. */
+    ticketId: idSchema.optional(),
+    companyId: idSchema.optional(),
     workRoleId: idSchema,
     workTypeId: idSchema,
     workDate: isoDate,
@@ -346,6 +350,13 @@ export const timeEntryCreateSchema = z
     internalNotes: z.string().trim().max(5000).optional(),
   })
   .superRefine((v, ctx) => {
+    if (v.ticketId === undefined && v.companyId === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ticketId"],
+        message: "Choose a ticket, or a company for non-ticket time",
+      });
+    }
     const hasRange = v.startedAt !== undefined || v.endedAt !== undefined;
     if (v.hours === undefined && !hasRange) {
       ctx.addIssue({
@@ -378,6 +389,21 @@ export const timeEntryCreateSchema = z
     }
   });
 export type TimeEntryCreate = z.infer<typeof timeEntryCreateSchema>;
+
+/** Changes to an open entry; submitted time must be recalled first. */
+export const timeEntryUpdateSchema = z
+  .object({
+    workDate: isoDate,
+    hours: z.number().positive().max(24),
+    workRoleId: idSchema,
+    workTypeId: idSchema,
+    billable: z.enum(["billable", "do_not_bill", "no_charge"]),
+    notes: z.string().trim().max(5000).nullable(),
+    internalNotes: z.string().trim().max(5000).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type TimeEntryUpdate = z.infer<typeof timeEntryUpdateSchema>;
 
 export const timeEntryListQuerySchema = paginationSchema.extend({
   memberId: idSchema.optional(),

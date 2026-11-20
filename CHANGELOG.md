@@ -6,6 +6,13 @@ the first production release.
 ## [Unreleased]
 
 ### Added
+- Time screen (`#/time`). **My timesheet**: week view (Sunday to Saturday) with day totals, add, edit and remove
+  entries, submit and recall the week. **Approvals** (approvers): per-member open, submitted and approved hours for a
+  week, with approve (never your own time). **Pay periods** (period lock): create a month's two periods, preview the
+  payroll table with warnings and unsubmitted-time check, lock, and download the payroll CSV.
+  Backend: time can be logged without a ticket against a company (shop, training, admin; always paid, never billed),
+  open entries can be edited (`PATCH /time-entries/:id`, refused once submitted, in a locked period, or while a timer
+  runs), and entries now carry the company and ticket names.
 - Connected records. Every record has an address (`#/companies/12`, `#/tickets/55`, `#/tickets?contactId=7`), so any
   screen can link to any other. New **company page**: alerts, activity stats, contacts and sites (add, edit, remove),
   the company's tickets, recent time and notes, with "New ticket" prefilled from the company, a site or a contact.
