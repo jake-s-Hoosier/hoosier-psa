@@ -18,6 +18,9 @@ export const PERMISSIONS = {
   "timekeeping.period.lock": "Lock and export pay periods",
   "sales.opportunity.read": "View opportunities, activities and linked quotes and designs",
   "sales.opportunity.write": "Create and change opportunities, activities and linked records",
+  "sales.order.read": "View sales orders and billing milestones",
+  "sales.order.write":
+    "Create and change sales orders and billing milestones; converting to a project also needs project.write",
   "project.read": "View projects, phases and their billing",
   "project.write": "Create and change projects and phases",
   "billing.agreement.read": "View agreements and their recurring lines",
@@ -52,6 +55,8 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "project.write",
     "sales.opportunity.read",
     "sales.opportunity.write",
+    "sales.order.read",
+    "sales.order.write",
     "timekeeping.time.read_own",
     "timekeeping.time.write_own",
     "timekeeping.time.read_all",
@@ -91,6 +96,8 @@ export const DEFAULT_ROLE_GRANTS: Record<string, readonly PermissionKey[]> = {
     "project.read",
     "sales.opportunity.read",
     "sales.opportunity.write",
+    "sales.order.read",
+    "sales.order.write",
     "billing.agreement.read",
   ],
   Billing: [

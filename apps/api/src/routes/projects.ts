@@ -5,6 +5,7 @@ import {
   type ProjectBilling,
   type ProjectBillingScope,
   idSchema,
+  milestoneCreateSchema,
   phaseCreateSchema,
   phaseUpdateSchema,
   projectCreateSchema,
@@ -15,6 +16,7 @@ import type { FastifyPluginAsync } from "fastify";
 import type pg from "pg";
 import { z } from "zod";
 import { HttpError } from "../errors.js";
+import { checkMilestoneTotal, listMilestones } from "./orders.js";
 
 type Q = Pick<pg.Pool, "query">;
 
@@ -326,8 +328,48 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           values,
         );
       }
+      await checkMilestoneTotal(
+        client,
+        { projectId: id },
+        method === "actual_rates" || amount === null ? null : String(amount),
+        method,
+      );
       return loadProject(client, id, true);
     });
+  });
+
+  app.get("/:id/milestones", { config: { perm: "project.read" } }, async (req) => {
+    const { id } = params.parse(req.params);
+    await loadProject(app.pool, id);
+    return { items: await listMilestones(app.pool, { projectId: id }) };
+  });
+
+  app.post("/:id/milestones", { config: { perm: "project.write" } }, async (req, reply) => {
+    const { id } = params.parse(req.params);
+    const body = milestoneCreateSchema.parse(req.body);
+    const created = await withActor(app.pool, req.memberId as number, async (client) => {
+      const p = await loadProject(client, id, true);
+      const next = await client.query<{ n: number }>(
+        "SELECT COALESCE(max(sort_order), 0) + 10 AS n FROM sales.billing_milestone WHERE project_id = $1",
+        [id],
+      );
+      const { rows } = await client.query<{ id: string }>(
+        `INSERT INTO sales.billing_milestone (project_id, name, kind, percent, amount, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [
+          id,
+          body.name,
+          body.kind,
+          body.percent ?? null,
+          body.amount ?? null,
+          body.sortOrder ?? next.rows[0]?.n,
+        ],
+      );
+      await checkMilestoneTotal(client, { projectId: id }, p.billingAmount, p.billingMethod);
+      const all = await listMilestones(client, { projectId: id });
+      return all.find((m) => m.id === Number(rows[0]?.id));
+    });
+    return reply.status(201).send(created);
   });
 
   app.post("/:id/phases", { config: { perm: "project.write" } }, async (req, reply) => {

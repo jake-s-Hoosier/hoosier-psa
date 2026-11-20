@@ -820,6 +820,8 @@ export const billingRunCreateSchema = z
     percent: z.number().positive().max(100).optional(),
     /** Deposit and progress runs: the line's wording (a milestone name, say). */
     description: z.string().trim().min(1).max(300).optional(),
+    /** Deposit and progress runs: the planned milestone this payment bills. */
+    milestoneId: idSchema.optional(),
     /** Ticket runs bill approved time worked up to and including this date. */
     throughDate: isoDate.optional(),
     invoiceDate: isoDate.optional(),
@@ -1407,3 +1409,150 @@ export const externalRefCreateSchema = z.object({
   amount: z.number().min(0).max(1_000_000_000).optional(),
 });
 export type ExternalRefCreate = z.input<typeof externalRefCreateSchema>;
+
+// ---- Sales orders and billing milestones ----
+
+export const salesOrderStatuses = ["draft", "approved", "converted", "canceled"] as const;
+export const orderLineKinds = ["labor", "material", "other"] as const;
+export type OrderLineKind = (typeof orderLineKinds)[number];
+export const milestoneKinds = ["deposit", "progress"] as const;
+export type MilestoneKind = (typeof milestoneKinds)[number];
+
+export interface SalesOrderLine {
+  id: number;
+  orderId: number;
+  kind: OrderLineKind;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  unitCost: string;
+  sortOrder: number;
+  lineTotal: string;
+}
+
+export interface BillingMilestone {
+  id: number;
+  orderId: number | null;
+  projectId: number | null;
+  name: string;
+  kind: MilestoneKind;
+  percent: string | null;
+  amount: string | null;
+  /** The dollar amount: the stated amount, or the percentage of the fixed fee. */
+  resolvedAmount: string | null;
+  sortOrder: number;
+  billed: boolean;
+}
+
+export interface SalesOrder {
+  id: number;
+  opportunityId: number | null;
+  opportunity: string | null;
+  companyId: number;
+  company: string;
+  siteId: number | null;
+  site: string | null;
+  name: string;
+  status: (typeof salesOrderStatuses)[number];
+  billingMethod: ProjectBillingMethod;
+  billingAmount: string | null;
+  poNumber: string | null;
+  poAmount: string | null;
+  notes: string | null;
+  projectId: number | null;
+  approvedAt: string | null;
+  /** Sum of the line prices, a reference for the fee. */
+  linesTotal: string;
+  /** Labor hours across the lines, the default project budget. */
+  laborHours: string;
+  createdAt: string;
+}
+
+export const salesOrderCreateSchema = z
+  .object({
+    opportunityId: idSchema.optional(),
+    companyId: idSchema.optional(),
+    siteId: idSchema.optional(),
+    name: z.string().trim().min(1).max(300).optional(),
+    billingMethod: z.enum(projectBillingMethods).default("fixed_fee"),
+    billingAmount: optMoney.nullable().optional(),
+    poNumber: z.string().trim().max(100).optional(),
+    poAmount: optMoney.optional(),
+    notes: z.string().trim().max(10000).optional(),
+  })
+  .superRefine(projectBillingRefine)
+  .superRefine((v, ctx) => {
+    if (!v.opportunityId && !(v.companyId && v.name))
+      ctx.addIssue({
+        code: "custom",
+        path: ["opportunityId"],
+        message: "Start from an opportunity, or give a customer and a name",
+      });
+  });
+export type SalesOrderCreate = z.input<typeof salesOrderCreateSchema>;
+
+export const salesOrderUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(300),
+    siteId: idSchema.nullable(),
+    status: z.enum(["draft", "approved", "canceled"]),
+    billingMethod: z.enum(projectBillingMethods),
+    billingAmount: optMoney.nullable(),
+    poNumber: z.string().trim().max(100).nullable(),
+    poAmount: optMoney.nullable(),
+    notes: z.string().trim().max(10000).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+export type SalesOrderUpdate = z.infer<typeof salesOrderUpdateSchema>;
+
+export const orderLineSchema = z.object({
+  kind: z.enum(orderLineKinds),
+  description: z.string().trim().min(1).max(500),
+  quantity: z.number().positive().max(1_000_000),
+  unitPrice: z.number().min(0).max(9_999_999).default(0),
+  unitCost: z.number().min(0).max(9_999_999).default(0),
+  sortOrder: z.number().int().min(0).max(100000).optional(),
+});
+export type OrderLineInput = z.input<typeof orderLineSchema>;
+export const orderLineUpdateSchema = orderLineSchema
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+
+export const milestoneCreateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(300),
+    kind: z.enum(milestoneKinds).default("progress"),
+    percent: z.number().positive().max(100).optional(),
+    amount: z.number().positive().max(100_000_000).optional(),
+    sortOrder: z.number().int().min(0).max(100000).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if ((v.percent === undefined) === (v.amount === undefined))
+      ctx.addIssue({
+        code: "custom",
+        path: ["amount"],
+        message: "Enter an amount or a percentage of the fixed fee, not both",
+      });
+  });
+export type MilestoneInput = z.input<typeof milestoneCreateSchema>;
+export const milestoneUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(300),
+    kind: z.enum(milestoneKinds),
+    percent: z.number().positive().max(100).nullable(),
+    amount: z.number().positive().max(100_000_000).nullable(),
+    sortOrder: z.number().int().min(0).max(100000),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, "Provide at least one field to change");
+
+export const orderConvertSchema = z.object({
+  projectName: z.string().trim().min(1).max(300).optional(),
+  managerMemberId: idSchema.optional(),
+  estimatedStart: isoDate.optional(),
+  estimatedEnd: isoDate.optional(),
+  /** Phases to create, by name, in order. */
+  phases: z.array(z.string().trim().min(1).max(200)).max(30).default([]),
+});
+export type OrderConvert = z.input<typeof orderConvertSchema>;

@@ -10,6 +10,14 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Sales orders and billing milestones (sales slice B). Migration 0021: `sales.sales_order` (from an opportunity; fixed
+  fee, actual rates, not to exceed or override rate, with PO), `sales.sales_order_line` (budget and bill of materials,
+  never charges), `sales.billing_milestone` (planned deposit and progress payments, by percent or dollars, never more
+  than the fixed fee) and `billing_run.milestone_id`. An approved order converts to a project in one step: billing
+  method, fee and PO carry over, labor hours become the budget, optional phases are created, milestones move to the
+  project, quote and design links are copied, and the opportunity moves to Won. The project Bill dialog offers the
+  unbilled milestones to fill in the amount and wording; a milestone shows Billed while its invoice is not void.
+  New permissions `sales.order.read` and `.write` (Manager, Sales); converting also needs `project.write`.
 - Opportunities (sales slice A). Migration 0020: `sales.stage` (seeded Qualify, Site walk and design, Proposal sent,
   Negotiation, Won, Lost, each with a win probability), `sales.opportunity`, `sales.activity` (calls, emails, meetings,
   site visits, notes and dated tasks) and `sales.external_ref`, a provider-neutral link from an opportunity, order or

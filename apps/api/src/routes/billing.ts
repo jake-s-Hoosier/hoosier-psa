@@ -1145,6 +1145,35 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
             description: body.description,
           }
         : null;
+    /** A milestone payment must be an unbilled milestone of this project, billed as a deposit or progress payment. */
+    const checkMilestone = async (q: Q, lock: boolean): Promise<void> => {
+      if (body.milestoneId === undefined) return;
+      if (!projectInput || (projectInput.mode !== "deposit" && projectInput.mode !== "progress"))
+        throw new HttpError(
+          422,
+          "Not a milestone payment",
+          "Milestones are billed as deposit or progress payments",
+        );
+      if (projectInput.phaseId !== null)
+        throw new HttpError(
+          422,
+          "Not a milestone payment",
+          "Milestones belong to the whole project",
+        );
+      const m = await q.query(
+        `SELECT 1 FROM sales.billing_milestone WHERE id = $1 AND project_id = $2${lock ? " FOR UPDATE" : ""}`,
+        [body.milestoneId, projectInput.projectId],
+      );
+      if (!m.rowCount)
+        throw new HttpError(422, "Invalid milestone", "That milestone is not on this project");
+      const billed = await q.query(
+        `SELECT 1 FROM billing.billing_run r JOIN billing.invoice i ON i.run_id = r.id
+          WHERE r.milestone_id = $1 AND i.status <> 'void'`,
+        [body.milestoneId],
+      );
+      if (billed.rowCount)
+        throw new HttpError(409, "Already billed", "That milestone has already been billed");
+    };
     const planFor = async (
       q: Q,
       lock = false,
@@ -1159,6 +1188,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
           ? planTicketRun(q, body.throughDate as string)
           : planAgreementRun(q, month);
     if (body.preview) {
+      await checkMilestone(app.pool, false);
       const plan = await planFor(app.pool);
       const preview: BillingRunPreview = {
         kind: body.kind,
@@ -1173,6 +1203,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
     }
     const runId = await withActor(app.pool, req.memberId as number, async (client) => {
       // Plan inside the transaction so the already-billed check and the inserts see the same state.
+      await checkMilestone(client, true);
       const plan = await planFor(client, true);
       if (plan.invoices.length === 0) {
         throw new HttpError(
@@ -1190,8 +1221,8 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       const run = await client.query<{ id: string }>(
         `INSERT INTO billing.billing_run
            (kind, period_month, through_date, invoice_date, notes, created_by_member_id,
-            project_id, phase_id, project_mode)
-         VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+            project_id, phase_id, project_mode, milestone_id)
+         VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
         [
           body.kind,
           `${month}-01`,
@@ -1202,6 +1233,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
           projectInput?.projectId ?? null,
           projectInput?.phaseId ?? null,
           projectInput?.mode ?? null,
+          body.milestoneId ?? null,
         ],
       );
       const rid = Number(run.rows[0]?.id);

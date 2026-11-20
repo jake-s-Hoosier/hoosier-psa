@@ -1,4 +1,5 @@
 import type {
+  BillingMilestone,
   BillingRunPreview,
   Phase,
   Project,
@@ -9,6 +10,7 @@ import type {
   ProjectStatus,
 } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
+import { MilestonesPanel } from "./OrdersUI";
 import {
   type Lookups,
   type ProjectTicketRow,
@@ -20,6 +22,7 @@ import {
   getProject,
   getProjectBilling,
   listCompanies,
+  listMilestonesFor,
   listProjectTickets,
   listProjects,
   previewBillingRun,
@@ -356,6 +359,18 @@ function ProjectDetail(props: {
           </tbody>
         </table>
       </div>
+
+      {project.billingMethod === "fixed_fee" && (
+        <div className="card">
+          <h3>Billing milestones</h3>
+          <MilestonesPanel
+            owner={{ projectId: project.id }}
+            fee={project.billingAmount}
+            canWrite={canWrite && props.can("sales.order.write")}
+            onChanged={refresh}
+          />
+        </div>
+      )}
 
       <div className="card">
         <div className="page-header">
@@ -913,6 +928,34 @@ function BillDialog(props: {
   const [preview, setPreview] = useState<BillingRunPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [milestones, setMilestones] = useState<BillingMilestone[]>([]);
+  const [milestoneId, setMilestoneId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!fixed || sc.phaseId !== null) return;
+    listMilestonesFor({ projectId: props.project.id })
+      .then((r) => setMilestones(r.items.filter((m) => !m.billed)))
+      .catch(() => {});
+  }, [fixed, sc.phaseId, props.project.id]);
+
+  const pickMilestone = (id: number) => {
+    setPreview(null);
+    const m = milestones.find((x) => x.id === id);
+    if (!m) {
+      setMilestoneId(null);
+      return;
+    }
+    setMilestoneId(m.id);
+    setMode(m.kind);
+    if (m.percent) {
+      setBy("percent");
+      setValue(String(Number(m.percent)));
+    } else {
+      setBy("amount");
+      setValue(String(Number(m.amount)));
+    }
+    setDescription(m.name);
+  };
 
   const feeMode = mode === "deposit" || mode === "progress";
   const target = () => ({
@@ -924,6 +967,7 @@ function BillDialog(props: {
     amount: feeMode && by === "amount" ? Number(value) : undefined,
     percent: feeMode && by === "percent" ? Number(value) : undefined,
     description: feeMode && description.trim() ? description.trim() : undefined,
+    milestoneId: feeMode && milestoneId !== null ? milestoneId : undefined,
   });
   const ready = !feeMode || Number(value) > 0;
 
@@ -960,6 +1004,23 @@ function BillDialog(props: {
         </p>
       )}
       <div className="field-grid">
+        {milestones.length > 0 && (
+          <label>
+            Planned milestone
+            <select
+              className="input"
+              value={milestoneId ?? 0}
+              onChange={(e) => pickMilestone(Number(e.target.value))}
+            >
+              <option value={0}>None, enter an amount</option>
+              {milestones.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} ({m.resolvedAmount ? usd(m.resolvedAmount) : ""})
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {fixed ? (
           <label>
             What to bill
@@ -968,6 +1029,7 @@ function BillDialog(props: {
               value={mode}
               onChange={(e) => {
                 setMode(e.target.value as ProjectBillingMode);
+                setMilestoneId(null);
                 setPreview(null);
               }}
             >

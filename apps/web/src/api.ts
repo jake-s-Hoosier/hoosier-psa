@@ -7,6 +7,7 @@ import type {
   AgreementCreate,
   AgreementDetail,
   AgreementUpdate,
+  BillingMilestone,
   BillingRun,
   BillingRunPreview,
   Company,
@@ -24,9 +25,12 @@ import type {
   Invoice,
   InvoiceLineUpdate,
   InvoiceUpdate,
+  MilestoneInput,
   Opportunity,
   OpportunityCreate,
   OpportunityUpdate,
+  OrderConvert,
+  OrderLineInput,
   PayPeriod,
   Payment,
   PaymentCreate,
@@ -40,6 +44,10 @@ import type {
   ProjectBillingMode,
   ProjectCreate,
   ProjectUpdate,
+  SalesOrder,
+  SalesOrderCreate,
+  SalesOrderLine,
+  SalesOrderUpdate,
   SalesStage,
   Site,
   SiteInput,
@@ -610,6 +618,7 @@ export type RunTarget =
       amount?: number;
       percent?: number;
       description?: string;
+      milestoneId?: number;
     };
 export const previewBillingRun = (target: RunTarget, invoiceDate: string) =>
   request<BillingRunPreview>("POST", "/api/v1/billing/runs", {
@@ -790,3 +799,49 @@ export const createExternalRef = (
   );
 export const deleteExternalRef = (id: number) =>
   request<void>("DELETE", `/api/v1/sales/external-refs/${id}`);
+
+// ---- Sales orders and billing milestones ----
+export const listOrders = (
+  p: { opportunityId?: number; status?: string },
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams({ status: p.status ?? "all" });
+  if (p.opportunityId) params.set("opportunityId", String(p.opportunityId));
+  return get<{ items: SalesOrder[] }>(`/api/v1/sales/orders?${params}`, signal);
+};
+export const getOrder = (id: number, signal?: AbortSignal) =>
+  get<SalesOrder>(`/api/v1/sales/orders/${id}`, signal);
+export const createOrder = (body: SalesOrderCreate) =>
+  request<SalesOrder>("POST", "/api/v1/sales/orders", body);
+export const updateOrder = (id: number, body: SalesOrderUpdate) =>
+  request<SalesOrder>("PATCH", `/api/v1/sales/orders/${id}`, body);
+export const convertOrder = (id: number, body: OrderConvert) =>
+  request<{ order: SalesOrder; projectId: number }>(
+    "POST",
+    `/api/v1/sales/orders/${id}/convert`,
+    body,
+  );
+export const listOrderLines = (id: number, signal?: AbortSignal) =>
+  get<{ items: SalesOrderLine[] }>(`/api/v1/sales/orders/${id}/lines`, signal);
+export const addOrderLine = (id: number, body: OrderLineInput) =>
+  request<SalesOrderLine>("POST", `/api/v1/sales/orders/${id}/lines`, body);
+export const deleteOrderLine = (id: number, lineId: number) =>
+  request<void>("DELETE", `/api/v1/sales/orders/${id}/lines/${lineId}`);
+export type MilestoneOwner = { orderId: number } | { projectId: number };
+export const listMilestonesFor = (owner: MilestoneOwner, signal?: AbortSignal) =>
+  get<{ items: BillingMilestone[] }>(
+    "orderId" in owner
+      ? `/api/v1/sales/orders/${owner.orderId}/milestones`
+      : `/api/v1/projects/${owner.projectId}/milestones`,
+    signal,
+  );
+export const addMilestone = (owner: MilestoneOwner, body: MilestoneInput) =>
+  request<BillingMilestone>(
+    "POST",
+    "orderId" in owner
+      ? `/api/v1/sales/orders/${owner.orderId}/milestones`
+      : `/api/v1/projects/${owner.projectId}/milestones`,
+    body,
+  );
+export const deleteMilestone = (id: number) =>
+  request<void>("DELETE", `/api/v1/sales/milestones/${id}`);

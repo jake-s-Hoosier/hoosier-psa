@@ -9,6 +9,7 @@ import type {
   SalesStage,
 } from "@hoosier/shared";
 import { useCallback, useEffect, useState } from "react";
+import { OrdersPanel } from "./OrdersUI";
 import {
   type Lookups,
   createActivity,
@@ -331,6 +332,17 @@ function OpportunityDetail(props: {
         <h3>Quotes, estimates and designs</h3>
         <ExternalRefs entityType="opportunity" entityId={opp.id} canWrite={canWrite} />
       </div>
+
+      {props.can("sales.order.read") && (
+        <div className="card">
+          <h3>Sales order</h3>
+          <OrdersPanel
+            opportunity={opp}
+            canWrite={props.can("sales.order.write")}
+            canConvert={props.can("project.write")}
+          />
+        </div>
+      )}
 
       <div className="card">
         <h3>Activity and tasks</h3>
