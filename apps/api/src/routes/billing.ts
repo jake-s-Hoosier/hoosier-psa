@@ -26,6 +26,8 @@ import type { FastifyPluginAsync } from "fastify";
 import type pg from "pg";
 import { z } from "zod";
 import { HttpError } from "../errors.js";
+import { renderInvoicePdf } from "../invoice-pdf.js";
+import { sellerFromEnv } from "../seller.js";
 
 const OPERATING_TZ = "America/Indiana/Indianapolis";
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: OPERATING_TZ }).format(new Date());
@@ -1031,6 +1033,84 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/invoices/:id", { config: { perm: "billing.invoice.read" } }, async (req) => {
     const { id } = z.object({ id: idSchema }).parse(req.params);
     return loadInvoice(app.pool, id);
+  });
+
+  /**
+   * The invoice as a PDF the customer could be sent. Read-only; drafts and voids are watermarked so one cannot be
+   * mistaken for a live invoice. Nothing is emailed from here.
+   */
+  app.get("/invoices/:id/pdf", { config: { perm: "billing.invoice.read" } }, async (req, reply) => {
+    const { id } = z.object({ id: idSchema }).parse(req.params);
+    const inv = await loadInvoice(app.pool, id);
+    const site = await app.pool.query<{
+      address_line1: string | null;
+      address_line2: string | null;
+      city: string | null;
+      state: string | null;
+      postal_code: string | null;
+    }>(
+      `SELECT address_line1, address_line2, city, state, postal_code
+         FROM crm.site WHERE company_id = $1 AND deleted_at IS NULL
+        ORDER BY is_billing DESC, is_default_service DESC, id LIMIT 1`,
+      [inv.companyId],
+    );
+    const a = site.rows[0];
+    const cityLine = [a?.city, [a?.state, a?.postal_code].filter(Boolean).join(" ")]
+      .filter(Boolean)
+      .join(", ");
+    const pays = await app.pool.query<{
+      received_on: string;
+      method: string;
+      reference: string | null;
+      amount: string;
+    }>(
+      `SELECT to_char(p.received_on, 'YYYY-MM-DD') AS received_on, p.method, p.reference, a.amount
+         FROM payments.payment_application a JOIN payments.payment p ON p.id = a.payment_id
+        WHERE a.invoice_id = $1 AND p.status = 'posted' ORDER BY p.received_on, a.id`,
+      [id],
+    );
+    const pdf = await renderInvoicePdf({
+      seller: sellerFromEnv(),
+      status: inv.status,
+      invoiceNumber: inv.invoiceNumber,
+      invoiceId: inv.id,
+      invoiceDate: inv.invoiceDate,
+      dueDate: inv.dueDate,
+      terms: inv.terms,
+      poNumber: inv.poNumber,
+      notes: inv.notes,
+      billTo: {
+        name: inv.company,
+        lines: [a?.address_line1, a?.address_line2, cityLine].filter((l): l is string =>
+          Boolean(l),
+        ),
+      },
+      taxLabel: inv.taxExempt ? "Tax (exempt)" : `Tax${inv.taxCode ? ` · ${inv.taxCode}` : ""}`,
+      lines: (inv.lines ?? []).map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        amount: l.amount,
+        detail:
+          l.periodStart && l.periodEnd
+            ? `${l.periodStart} to ${l.periodEnd}${l.taxable ? " · taxable" : ""}`
+            : undefined,
+      })),
+      subtotal: inv.subtotal,
+      taxTotal: inv.taxTotal,
+      total: inv.total,
+      payments: pays.rows.map((p) => ({
+        date: p.received_on,
+        label: `${p.method}${p.reference ? ` ${p.reference}` : ""}`,
+        amount: p.amount,
+      })),
+      amountPaid: inv.amountPaid,
+    });
+    const name = inv.invoiceNumber === null ? `draft-${inv.id}` : String(inv.invoiceNumber);
+    return reply
+      .header("content-type", "application/pdf")
+      .header("content-disposition", `inline; filename="invoice-${name}.pdf"`)
+      .send(pdf);
   });
 
   /**

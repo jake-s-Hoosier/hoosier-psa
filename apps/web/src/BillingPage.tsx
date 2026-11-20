@@ -11,6 +11,7 @@ import {
   getInvoice,
   listBillingRuns,
   listInvoices,
+  openInvoicePdf,
   postBillingRun,
   previewBillingRun,
   updateInvoice,
@@ -794,6 +795,13 @@ function InvoicePanel(props: {
             </button>
           </>
         )}
+        <button
+          type="button"
+          className="btn"
+          onClick={() => run(async () => void (await openInvoicePdf(inv.id)))}
+        >
+          {inv.status === "draft" ? "Preview PDF" : "Open PDF"}
+        </button>
         {inv.status !== "draft" && inv.status !== "void" && props.can("billing.invoice.post") && (
           <button type="button" className="btn" onClick={() => setDialog({ kind: "void" })}>
             Void invoice

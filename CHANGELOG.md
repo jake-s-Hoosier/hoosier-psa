@@ -10,6 +10,12 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Invoice PDF. `GET /api/v1/billing/invoices/:id/pdf` (billing.invoice.read) draws a letter-size invoice: seller header,
+  bill-to with the customer's billing address, lines, tax, total, payments received and balance due, repeated column
+  headings and page numbers on long invoices, and a DRAFT, VOID or PAID watermark. "Open PDF" or "Preview PDF" on the
+  invoice screen. Read-only: nothing is emailed or stored. The seller block comes from `INVOICE_SELLER_NAME`,
+  `INVOICE_SELLER_ADDRESS` (lines separated by `|`), `INVOICE_SELLER_PHONE` and `INVOICE_REMIT_NOTE`; the defaults are
+  Hoosier Security and the Indianapolis address.
 - Payments, recorded by hand. Migration 0016: schema `payments` with `payment` and `payment_application`, database
   guards (payer must match the invoice, only posted unpaid invoices take money, applications cannot exceed the payment
   or the invoice balance, a payment is voided and never deleted) and the usual audit trail. API under `/api/v1/payments`

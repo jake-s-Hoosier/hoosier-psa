@@ -631,3 +631,14 @@ export const unapplyPayment = (id: number, applicationId: number) =>
   request<Payment>("DELETE", `/api/v1/payments/${id}/applications/${applicationId}`);
 export const voidPayment = (id: number, reason: string) =>
   request<Payment>("POST", `/api/v1/payments/${id}/void`, { reason });
+
+/** Fetches the invoice PDF with the same headers as every other call, then opens it in a new tab. */
+export async function openInvoicePdf(id: number): Promise<void> {
+  const res = await fetch(`/api/v1/billing/invoices/${id}/pdf`, {
+    headers: { "x-dev-member-id": DEV_MEMBER_ID, "x-requested-with": "hoosier-psa" },
+  });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  const url = URL.createObjectURL(await res.blob());
+  window.open(url, "_blank", "noopener");
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

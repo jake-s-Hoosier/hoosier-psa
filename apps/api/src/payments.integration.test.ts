@@ -298,6 +298,22 @@ suite("payments (integration)", () => {
     ).rejects.toThrow(/posted, unpaid/);
   });
 
+  it("serves an invoice PDF to people who can read invoices", async () => {
+    const co = await company();
+    const i = await invoice(co, 100);
+    await pay(co, 40, [{ invoiceId: i, amount: 40 }]);
+    const ok = await call("GET", `/api/v1/billing/invoices/${i}/pdf`);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers["content-type"]).toBe("application/pdf");
+    expect(ok.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+    const draft = await invoice(co, 10, "draft");
+    expect((await call("GET", `/api/v1/billing/invoices/${draft}/pdf`)).statusCode).toBe(200);
+    expect((await call("GET", "/api/v1/billing/invoices/99999999/pdf")).statusCode).toBe(404);
+    expect(
+      (await call("GET", `/api/v1/billing/invoices/${i}/pdf`, undefined, tech)).statusCode,
+    ).toBe(403);
+  });
+
   it("limits who can see and record payments", async () => {
     const co = await company();
     expect((await call("GET", "/api/v1/payments", undefined, tech)).statusCode).toBe(403);
