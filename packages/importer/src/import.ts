@@ -104,6 +104,8 @@ type Id = number;
 interface Maps {
   members: Map<number, Id>;
   membersByIdentifier: Map<string, Id>;
+  /** Lower-case "first last"; names shared by two members are left out. CW tickets carry the full name. */
+  membersByName: Map<string, Id>;
 }
 
 async function importMembers(src: pg.Pool, db: pg.PoolClient, report: ImportReport): Promise<Maps> {
@@ -120,6 +122,8 @@ async function importMembers(src: pg.Pool, db: pg.PoolClient, report: ImportRepo
   const c = report.count("members");
   const members = new Map<number, Id>();
   const byIdentifier = new Map<string, Id>();
+  const byName = new Map<string, Id>();
+  const ambiguousNames = new Set<string>();
   for (const r of rows) {
     c.read += 1;
     const identifier = clean(r.identifier);
@@ -151,6 +155,13 @@ async function importMembers(src: pg.Pool, db: pg.PoolClient, report: ImportRepo
     const id = Number(out[0]?.id);
     members.set(r.id, id);
     byIdentifier.set(identifier.toLowerCase(), id);
+    const fullName = `${clean(r.first_name) ?? ""} ${clean(r.last_name) ?? ""}`
+      .trim()
+      .toLowerCase();
+    if (fullName) {
+      if (byName.has(fullName)) ambiguousNames.add(fullName);
+      byName.set(fullName, id);
+    }
     c.written += 1;
   }
   report.except(
@@ -158,7 +169,8 @@ async function importMembers(src: pg.Pool, db: pg.PoolClient, report: ImportRepo
     "*",
     "placeholder emails (@import.invalid) assigned; an administrator sets real emails",
   );
-  return { members, membersByIdentifier: byIdentifier };
+  for (const n of ambiguousNames) byName.delete(n);
+  return { members, membersByIdentifier: byIdentifier, membersByName: byName };
 }
 
 async function importCompanies(
@@ -1028,7 +1040,9 @@ async function importTickets(
       closed = null;
     }
     const assignedKey = clean(r.assigned_to)?.toLowerCase();
-    const owner = assignedKey ? members.membersByIdentifier.get(assignedKey) : undefined;
+    const owner = assignedKey
+      ? (members.membersByIdentifier.get(assignedKey) ?? members.membersByName.get(assignedKey))
+      : undefined;
     if (assignedKey && !owner)
       report.except("tickets", r.id, `assignee "${r.assigned_to}" not matched to a member`);
     const method = BILLING_METHODS[r.billing_method ?? ""] ?? "actual_rates";
