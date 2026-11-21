@@ -107,7 +107,7 @@ precomputable.
 ## Decisions made while building agreements
 
 - An addition's `unit_price` and `unit_cost` are **per month**; a quarterly or annual cycle multiplies by its months
-  when billing. (Confirm against the CW import: if CW additions are priced per cycle, the importer divides.)
+  when billing. CW prices additions **per bill cycle** (confirmed against the mirror: annual lines run about twelve times the monthly price for the same product), so the importer divides by the cycle's months.
 - The **cancellation date is the last day of coverage**; the agreement reads as cancelled the day after, its lines end
   on that date, and lines that never started are removed.
 - Status (`pending`, `active`, `expired`, `cancelled`) is computed, never stored. An auto-renewing agreement past its
@@ -189,7 +189,7 @@ precomputable.
 3. Block-hour agreements: how many exist and how are they replenished?
 4. Sales tax: single code per company, or line-level? (Mirror shows `tax_code` at invoice level.)
 5. Statements: required, or invoices only?
-6. Are CW addition prices per month or per bill cycle? (Decides how the importer maps them.)
+6. ~~Are CW addition prices per month or per bill cycle?~~ Answered: per bill cycle; the importer divides.
 
 ## Projects and project billing (as built)
 

@@ -129,3 +129,37 @@ export function compareWbs(a: number[], b: number[]): number {
   }
   return 0;
 }
+
+export type BillCycle = "monthly" | "quarterly" | "semi_annual" | "annual";
+
+/**
+ * CW bill cycle names. "zDNU-Yearly" is a retired "do not use" yearly cycle that still has agreements on it;
+ * it is treated as annual and flagged. A missing cycle is monthly, flagged.
+ */
+export function mapBillCycle(name: string | null | undefined): { cycle: BillCycle; note?: string } {
+  const n = (name ?? "").toLowerCase();
+  if (!n.trim()) return { cycle: "monthly", note: "no bill cycle in CW; set to monthly" };
+  if (n.includes("zdnu"))
+    return { cycle: "annual", note: "retired CW yearly cycle (zDNU-Yearly); set to annual" };
+  if (n.includes("semi")) return { cycle: "semi_annual" };
+  if (n.includes("quarter")) return { cycle: "quarterly" };
+  if (n.includes("annual") || n.includes("year")) return { cycle: "annual" };
+  if (n.includes("month")) return { cycle: "monthly" };
+  return { cycle: "monthly", note: `unrecognised CW bill cycle "${name}"; set to monthly` };
+}
+
+export function cycleMonths(cycle: BillCycle): number {
+  return { monthly: 1, quarterly: 3, semi_annual: 6, annual: 12 }[cycle];
+}
+
+/** CW additions are priced per bill cycle; the PSA prices them per month (docs/05), so divide by the cycle. */
+export function perMonth(amount: number, cycle: BillCycle): number {
+  return Math.round((amount / cycleMonths(cycle)) * 1e4) / 1e4;
+}
+
+/** Dates before 1990 or after 2100 are placeholders in CW ("never ends"), not real dates. */
+export function sane(date: string | null | undefined): string | null {
+  if (!date) return null;
+  const y = Number(date.slice(0, 4));
+  return y >= 1990 && y <= 2100 ? date.slice(0, 10) : null;
+}

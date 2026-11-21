@@ -1,6 +1,7 @@
 import { type EnvironmentName, assertSafeTarget, checkWriteAccess, readMarker } from "@hoosier/db";
 import { phoneExtension, toE164 } from "@hoosier/shared";
 import type pg from "pg";
+import { importAgreements } from "./agreements.js";
 import { BILLING_METHODS, clean, num } from "./mappings.js";
 import { ImportReport } from "./report.js";
 import { importSalesAndProjects } from "./sales-projects.js";
@@ -32,6 +33,8 @@ export interface Reconciliation {
   opportunities: { source: number; target: number };
   projects: { source: number; target: number };
   phases: { source: number; target: number };
+  agreements: { source: number; target: number };
+  agreementAdditions: { source: number; target: number };
 }
 
 const BILLABLE: Record<string, string> = {
@@ -93,6 +96,7 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
       contacts,
     });
     await importTimeEntries(source, client, report, { members, companies, projectTicketIds });
+    await importAgreements(source, client, report, { companies });
     await resetSequences(source, client);
     const reconciliation = await reconcile(source, client);
 
@@ -1258,13 +1262,17 @@ async function resetSequences(src: pg.Pool, db: pg.PoolClient): Promise<void> {
     opportunities: string;
     projects: string;
     phases: string;
+    agreements: string;
+    additions: string;
   }>(
     `SELECT GREATEST((SELECT COALESCE(max(id), 0) FROM production.service_tickets),
                      (SELECT COALESCE(max(id), 0) FROM production.project_tickets)) AS tickets,
             (SELECT COALESCE(max(id), 0) FROM production.time_entries) AS time_entries,
             (SELECT COALESCE(max(id), 0) FROM production.opportunities) AS opportunities,
             (SELECT COALESCE(max(id), 0) FROM production.projects) AS projects,
-            (SELECT COALESCE(max(phase_id), 0) FROM production.project_phases) AS phases`,
+            (SELECT COALESCE(max(phase_id), 0) FROM production.project_phases) AS phases,
+            (SELECT COALESCE(max(id), 0) FROM production.agreements) AS agreements,
+            (SELECT COALESCE(max(id), 0) FROM production.agreement_additions) AS additions`,
   );
   const sourceMax: Record<string, number> = {
     "service.ticket": Number(m.rows[0]?.tickets),
@@ -1272,6 +1280,8 @@ async function resetSequences(src: pg.Pool, db: pg.PoolClient): Promise<void> {
     "sales.opportunity": Number(m.rows[0]?.opportunities),
     "project.project": Number(m.rows[0]?.projects),
     "project.phase": Number(m.rows[0]?.phases),
+    "billing.agreement": Number(m.rows[0]?.agreements),
+    "billing.agreement_addition": Number(m.rows[0]?.additions),
   };
   for (const [table, srcMax] of Object.entries(sourceMax)) {
     await db.query(
@@ -1291,10 +1301,14 @@ async function reconcile(src: pg.Pool, db: pg.PoolClient): Promise<Reconciliatio
     opps: string;
     projects: string;
     phases: string;
+    agreements: string;
+    additions: string;
   }>(
     `SELECT (SELECT count(*) FROM production.opportunities) AS opps,
             (SELECT count(*) FROM production.projects) AS projects,
             (SELECT count(*) FROM production.project_phases) AS phases,
+            (SELECT count(*) FROM production.agreements) AS agreements,
+            (SELECT count(*) FROM production.agreement_additions) AS additions,
             ((SELECT count(*) FROM production.service_tickets)
              + (SELECT count(*) FROM production.project_tickets)) AS tickets,
             (SELECT count(*) FROM production.time_entries) AS te,
@@ -1307,10 +1321,14 @@ async function reconcile(src: pg.Pool, db: pg.PoolClient): Promise<Reconciliatio
     opps: string;
     projects: string;
     phases: string;
+    agreements: string;
+    additions: string;
   }>(
     `SELECT (SELECT count(*) FROM sales.opportunity WHERE legacy_cw_opportunity_id IS NOT NULL) AS opps,
             (SELECT count(*) FROM project.project WHERE legacy_cw_project_id IS NOT NULL) AS projects,
             (SELECT count(*) FROM project.phase WHERE legacy_cw_phase_id IS NOT NULL) AS phases,
+            (SELECT count(*) FROM billing.agreement WHERE legacy_cw_agreement_id IS NOT NULL) AS agreements,
+            (SELECT count(*) FROM billing.agreement_addition WHERE legacy_cw_addition_id IS NOT NULL) AS additions,
             (SELECT count(*) FROM service.ticket WHERE legacy_cw_ticket_id IS NOT NULL) AS tickets,
             (SELECT count(*) FROM timekeeping.time_entry WHERE legacy_cw_time_entry_id IS NOT NULL) AS te,
             (SELECT COALESCE(sum(actual_hours), 0) FROM timekeeping.time_entry WHERE legacy_cw_time_entry_id IS NOT NULL) AS hours`,
@@ -1324,5 +1342,7 @@ async function reconcile(src: pg.Pool, db: pg.PoolClient): Promise<Reconciliatio
     opportunities: { source: Number(a?.opps), target: Number(b?.opps) },
     projects: { source: Number(a?.projects), target: Number(b?.projects) },
     phases: { source: Number(a?.phases), target: Number(b?.phases) },
+    agreements: { source: Number(a?.agreements), target: Number(b?.agreements) },
+    agreementAdditions: { source: Number(a?.additions), target: Number(b?.additions) },
   };
 }

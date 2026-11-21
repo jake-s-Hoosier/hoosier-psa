@@ -4,9 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prioritySortOrder, runImport } from "./import.js";
 import {
   compareWbs,
+  cycleMonths,
   isDeadStage,
+  mapBillCycle,
   mapProjectStatus,
   opportunityOutcome,
+  perMonth,
+  sane,
   stageNumber,
   stageProbability,
   stageSortOrder,
@@ -19,6 +23,34 @@ describe("prioritySortOrder", () => {
     expect(prioritySortOrder("Priority 1 - Critical")).toBe(1);
     expect(prioritySortOrder("Priority 4 - Low")).toBe(4);
     expect(prioritySortOrder("Normal")).toBe(9);
+  });
+});
+
+describe("agreement mappings", () => {
+  it("maps CW bill cycles and flags the odd ones", () => {
+    expect(mapBillCycle("Monthly")).toEqual({ cycle: "monthly" });
+    expect(mapBillCycle("Quarterly")).toEqual({ cycle: "quarterly" });
+    expect(mapBillCycle("Semi-Annual")).toEqual({ cycle: "semi_annual" });
+    expect(mapBillCycle("Annual")).toEqual({ cycle: "annual" });
+    expect(mapBillCycle("zDNU-Yearly").cycle).toBe("annual");
+    expect(mapBillCycle("zDNU-Yearly").note).toMatch(/zDNU/);
+    expect(mapBillCycle(null).cycle).toBe("monthly");
+    expect(mapBillCycle(null).note).toBeDefined();
+    expect(mapBillCycle("Fortnightly").note).toMatch(/unrecognised/);
+  });
+  it("divides cycle prices to monthly prices", () => {
+    expect(cycleMonths("annual")).toBe(12);
+    expect(perMonth(523.2, "annual")).toBe(43.6);
+    expect(perMonth(120, "quarterly")).toBe(40);
+    expect(perMonth(99.99, "monthly")).toBe(99.99);
+    // Four decimal places keep a cycle's total exact to the cent once multiplied back.
+    expect(Math.round(perMonth(180.29, "annual") * 12 * 100) / 100).toBe(180.29);
+  });
+  it("treats placeholder dates as missing", () => {
+    expect(sane("2025-03-01")).toBe("2025-03-01");
+    expect(sane("9999-12-31")).toBeNull();
+    expect(sane("1900-01-01")).toBeNull();
+    expect(sane(null)).toBeNull();
   });
 });
 
@@ -227,6 +259,32 @@ suite("import (integration)", () => {
       CREATE TABLE production.project_phases (phase_id int PRIMARY KEY, project_id int, description text,
         parent_phase_id int, wbs_code text, bill_separately_flag boolean, billing_method text,
         scheduled_start date, scheduled_end date, budget_hours numeric, notes text);
+      CREATE TABLE production.agreements (id int PRIMARY KEY, name text, company_id int, company_name text,
+        type_id int, type_name text, start_date date, end_date date, cancelled_flag boolean, cancel_reason text,
+        bill_cycle_id int, bill_cycle_name text, bill_amount numeric, tax_amount numeric, bill_start_date date,
+        bill_to_company_id int, application_unlimited_flag boolean, application_limit numeric,
+        last_updated timestamp, synced_at timestamp);
+      INSERT INTO production.agreements (id, name, company_id, type_id, type_name, start_date, end_date,
+        cancelled_flag, cancel_reason, bill_cycle_name, bill_start_date, bill_to_company_id,
+        application_unlimited_flag, application_limit, last_updated) VALUES
+        (300, 'Quarterly monitoring', 10, 1, 'Alarm Monitoring - Quarterly', '2025-01-01', NULL, false, NULL, 'Quarterly', '2025-01-01', 10, false, 0, '2025-02-01 10:00'),
+        (301, 'Old JFI', 10, 2, 'JFI', '2024-01-01', '2025-06-30', true, 'Moved', 'Monthly', '2024-01-01', NULL, false, 0, '2025-07-01 10:00'),
+        (302, 'Nobody home', 999, 2, 'JFI', '2025-01-01', NULL, false, NULL, 'Monthly', '2025-01-01', NULL, false, 0, NULL),
+        (303, 'No cycle, no start', 10, 2, 'JFI', NULL, NULL, false, NULL, NULL, '2025-03-01', NULL, true, 0, '2025-03-05 10:00');
+      CREATE TABLE production.agreement_additions (id int PRIMARY KEY, agreement_id int, product_id int,
+        product_identifier text, description text, invoice_description text, quantity numeric, billed_quantity numeric,
+        unit_price numeric, unit_cost numeric, bill_customer text, prorate_current_period_flag boolean,
+        effective_date timestamp, date_entered timestamp, cancelled_date timestamp, agreement_status text,
+        last_updated timestamp, synced_at timestamp);
+      INSERT INTO production.agreement_additions (id, agreement_id, product_identifier, description, quantity,
+        unit_price, unit_cost, bill_customer, prorate_current_period_flag, effective_date, date_entered,
+        cancelled_date, agreement_status, last_updated) VALUES
+        (400, 300, 'MONITORING', 'Alarm monitoring', 2, 120, 30, 'Billable', false, '2025-01-01', '2025-01-01', NULL, 'Active', '2025-01-02'),
+        (401, 301, 'JFI-M', NULL, 1, 100, 0, 'Billable', true, '2024-01-01', '2024-01-01', NULL, 'Active', '2024-01-02'),
+        (402, 300, 'X', 'Free thing', 1, 10, 0, 'DoNotBill', false, '2025-01-01', NULL, NULL, 'Active', NULL),
+        (403, 300, 'X', 'Zero quantity', 0, 10, 0, 'Billable', false, '2025-01-01', NULL, NULL, 'Active', NULL),
+        (404, 303, 'Y', 'Ended in CW', 1, 25, 5, 'Billable', false, '2025-03-01', NULL, NULL, 'Inactive', '2025-09-09 08:00'),
+        (405, 9999, 'Z', 'Orphan', 1, 1, 0, 'Billable', false, '2025-03-01', NULL, NULL, 'Active', NULL);
       CREATE TABLE production.project_tickets (id int PRIMARY KEY, project_id int, summary text, status text,
         budget_hours numeric, actual_hours numeric, closed_flag boolean, date_entered date,
         last_updated timestamp, synced_at timestamp);
@@ -531,6 +589,8 @@ suite("import (integration)", () => {
     expect(report.counts.phases).toMatchObject({ read: 6, written: 5, skipped: 1 });
     expect(reconciliation.opportunities).toEqual({ source: 10, target: 8 });
     expect(reconciliation.projects).toEqual({ source: 9, target: 8 });
+    expect(reconciliation.agreements).toEqual({ source: 4, target: 3 });
+    expect(reconciliation.agreementAdditions).toEqual({ source: 6, target: 3 });
     expect(reconciliation.phases).toEqual({ source: 6, target: 5 });
 
     // CW stages come across by their own names; Dead is an outcome, and the starter stages step aside.
@@ -672,6 +732,56 @@ suite("import (integration)", () => {
        SELECT id, 'native' FROM crm.company WHERE legacy_cw_company_id = 10 RETURNING id`,
     );
     expect(Number(nextProject.rows[0]?.id)).toBe(109);
+  });
+
+  it("imports agreements and additions, pricing per month, ending lines with their agreement", async () => {
+    const { report } = await run();
+    expect(report.counts["agreements"]).toMatchObject({ read: 4, written: 3, skipped: 1 });
+    expect(report.counts["agreement additions"]).toMatchObject({ read: 6, written: 3, skipped: 3 });
+    const ag = async (id: number) =>
+      (
+        await target.query(
+          `SELECT a.*, t.name AS type FROM billing.agreement a JOIN billing.agreement_type t ON t.id = a.type_id WHERE a.id = $1`,
+          [id],
+        )
+      ).rows[0];
+    const d = (v: unknown) => (v instanceof Date ? v.toLocaleDateString("en-CA") : v);
+    const a300 = await ag(300);
+    expect(a300).toMatchObject({
+      type: "Alarm Monitoring - Quarterly",
+      bill_cycle: "quarterly",
+      cancelled_date: null,
+    });
+    expect(String(a300.bill_to_company_id)).toBe(String(a300.company_id));
+    const a301 = await ag(301);
+    expect(d(a301.cancelled_date)).toBe("2025-06-30");
+    expect(a301.cancel_reason).toBe("Moved");
+    const a303 = await ag(303);
+    expect(a303).toMatchObject({ bill_cycle: "monthly" });
+    expect(d(a303.start_date)).toBe("2025-03-01"); // bill start used
+    expect(await ag(302)).toBeUndefined();
+    const ad = async (id: number) =>
+      (await target.query("SELECT * FROM billing.agreement_addition WHERE id = $1", [id])).rows[0];
+    const a400 = await ad(400);
+    expect(Number(a400.unit_price)).toBe(40); // 120 per quarter
+    expect(Number(a400.unit_cost)).toBe(10);
+    expect(Number(a400.quantity)).toBe(2);
+    expect(a400.effective_to).toBeNull();
+    const a401 = await ad(401);
+    expect(a401.description).toBe("JFI-M");
+    expect(a401.prorate).toBe(true);
+    expect(d(a401.effective_to)).toBe("2025-06-30"); // ends with its cancelled agreement
+    expect(d((await ad(404)).effective_to)).toBe("2025-09-09"); // Inactive: last update
+    for (const id of [402, 403, 405]) expect(await ad(id)).toBeUndefined();
+    // A changed source price flows through on a re-run (the history guard is lifted for the import only).
+    await srcAdmin.query(
+      "UPDATE production.agreement_additions SET unit_price = 150 WHERE id = 400",
+    );
+    await run();
+    expect(Number((await ad(400)).unit_price)).toBe(50);
+    await expect(
+      target.query("UPDATE billing.agreement_addition SET unit_price = 1 WHERE id = 400"),
+    ).rejects.toThrow(/not edited in place/);
   });
 
   it("imports project tickets as tickets on a project board and re-points their time entries", async () => {

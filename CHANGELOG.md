@@ -13,6 +13,8 @@ the first production release.
   now formatted as calendar days.
 
 ### Added
+- Importer: agreement types, agreements and additions (priced per cycle in CW, divided to monthly), so the RMR and
+  agreement reports have data after an import. Reconciliation compares agreement and addition counts.
 - Importer: CW project tickets import as tickets on a Project Tickets board pointing at their project, and time entries
   that charged them follow.
 - Importer: sales stages, opportunities, projects and project phases from the ConnectWise mirror, with ids preserved,
