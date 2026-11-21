@@ -99,6 +99,17 @@ async function importAgreementRows(
             application_unlimited_flag, application_limit, last_updated::date::text AS last_updated
        FROM production.agreements ORDER BY id`,
   );
+  // CW keeps no cancel date on an agreement and its last_updated is the warehouse sync date (everything reads as
+  // "just changed"), so the best evidence of when it ended is its own end date or its lines' cancel dates.
+  const lastLineCancel = new Map<number, string>();
+  const lines = await src.query<{ agreement_id: number; d: string }>(
+    `SELECT agreement_id, max(cancelled_date)::date::text AS d FROM production.agreement_additions
+      WHERE cancelled_date IS NOT NULL GROUP BY agreement_id`,
+  );
+  for (const l of lines.rows) {
+    const d = sane(l.d);
+    if (d) lastLineCancel.set(l.agreement_id, d);
+  }
   const out = new Map<number, ImportedAgreement>();
   const c = report.count("agreements");
   for (const a of rows) {
@@ -133,13 +144,22 @@ async function importAgreementRows(
     }
     let cancelledDate: string | null = null;
     if (a.cancelled_flag === true) {
-      // CW keeps no cancel date on the agreement: its end date, else the day it was last changed.
-      cancelledDate = endDate ?? sane(a.last_updated) ?? startRaw;
+      const known = endDate ?? lastLineCancel.get(a.id) ?? null;
+      cancelledDate = known ?? startRaw;
       if (cancelledDate < startRaw) cancelledDate = startRaw;
-      report.tally("agreements", "cancelled; CW has no cancel date, end date or last update used");
+      report.tally(
+        "agreements",
+        known
+          ? "cancelled; end date or last line cancel date used as the cancel date"
+          : "cancelled with no date in the mirror; treated as ended on its start date (real date unknown)",
+      );
     }
-    if (a.application_unlimited_flag === true || Number(a.application_limit ?? 0) > 0) {
-      report.tally("agreements", "coverage (block hours / unlimited) not imported; set by hand");
+    // Unlimited is CW's default on almost every agreement; only a real limit needs a person to look.
+    if (a.application_unlimited_flag !== true && Number(a.application_limit ?? 0) > 0) {
+      report.tally(
+        "agreements",
+        "has a coverage limit (block hours) that is not imported; set by hand",
+      );
     }
     const name = clean(a.name) ?? `${clean(a.type_name) ?? "Agreement"} ${a.id}`;
     await db.query(

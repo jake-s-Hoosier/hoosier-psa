@@ -270,7 +270,9 @@ suite("import (integration)", () => {
         (300, 'Quarterly monitoring', 10, 1, 'Alarm Monitoring - Quarterly', '2025-01-01', NULL, false, NULL, 'Quarterly', '2025-01-01', 10, false, 0, '2025-02-01 10:00'),
         (301, 'Old JFI', 10, 2, 'JFI', '2024-01-01', '2025-06-30', true, 'Moved', 'Monthly', '2024-01-01', NULL, false, 0, '2025-07-01 10:00'),
         (302, 'Nobody home', 999, 2, 'JFI', '2025-01-01', NULL, false, NULL, 'Monthly', '2025-01-01', NULL, false, 0, NULL),
-        (303, 'No cycle, no start', 10, 2, 'JFI', NULL, NULL, false, NULL, NULL, '2025-03-01', NULL, true, 0, '2025-03-05 10:00');
+        (303, 'No cycle, no start', 10, 2, 'JFI', NULL, NULL, false, NULL, NULL, '2025-03-01', NULL, true, 0, '2025-03-05 10:00'),
+        (304, 'Cancelled, dated by its line', 10, 2, 'JFI', '2025-01-01', NULL, true, NULL, 'Monthly', '2025-01-01', NULL, true, 0, '2026-11-20 03:00'),
+        (305, 'Cancelled, no date anywhere', 10, 2, 'JFI', '2025-02-01', NULL, true, NULL, 'Monthly', '2025-02-01', NULL, true, 0, '2026-11-20 03:00');
       CREATE TABLE production.agreement_additions (id int PRIMARY KEY, agreement_id int, product_id int,
         product_identifier text, description text, invoice_description text, quantity numeric, billed_quantity numeric,
         unit_price numeric, unit_cost numeric, bill_customer text, prorate_current_period_flag boolean,
@@ -284,7 +286,8 @@ suite("import (integration)", () => {
         (402, 300, 'X', 'Free thing', 1, 10, 0, 'DoNotBill', false, '2025-01-01', NULL, NULL, 'Active', NULL),
         (403, 300, 'X', 'Zero quantity', 0, 10, 0, 'Billable', false, '2025-01-01', NULL, NULL, 'Active', NULL),
         (404, 303, 'Y', 'Ended in CW', 1, 25, 5, 'Billable', false, '2025-03-01', NULL, NULL, 'Inactive', '2025-09-09 08:00'),
-        (405, 9999, 'Z', 'Orphan', 1, 1, 0, 'Billable', false, '2025-03-01', NULL, NULL, 'Active', NULL);
+        (405, 9999, 'Z', 'Orphan', 1, 1, 0, 'Billable', false, '2025-03-01', NULL, NULL, 'Active', NULL),
+        (406, 304, 'W', 'Cancelled line', 1, 10, 0, 'Billable', false, '2025-01-01', NULL, '2025-04-15', 'Active', NULL);
       CREATE TABLE production.project_tickets (id int PRIMARY KEY, project_id int, summary text, status text,
         budget_hours numeric, actual_hours numeric, closed_flag boolean, date_entered date,
         last_updated timestamp, synced_at timestamp);
@@ -589,8 +592,8 @@ suite("import (integration)", () => {
     expect(report.counts.phases).toMatchObject({ read: 6, written: 5, skipped: 1 });
     expect(reconciliation.opportunities).toEqual({ source: 10, target: 8 });
     expect(reconciliation.projects).toEqual({ source: 9, target: 8 });
-    expect(reconciliation.agreements).toEqual({ source: 4, target: 3 });
-    expect(reconciliation.agreementAdditions).toEqual({ source: 6, target: 3 });
+    expect(reconciliation.agreements).toEqual({ source: 6, target: 5 });
+    expect(reconciliation.agreementAdditions).toEqual({ source: 7, target: 4 });
     expect(reconciliation.phases).toEqual({ source: 6, target: 5 });
 
     // CW stages come across by their own names; Dead is an outcome, and the starter stages step aside.
@@ -736,8 +739,8 @@ suite("import (integration)", () => {
 
   it("imports agreements and additions, pricing per month, ending lines with their agreement", async () => {
     const { report } = await run();
-    expect(report.counts["agreements"]).toMatchObject({ read: 4, written: 3, skipped: 1 });
-    expect(report.counts["agreement additions"]).toMatchObject({ read: 6, written: 3, skipped: 3 });
+    expect(report.counts["agreements"]).toMatchObject({ read: 6, written: 5, skipped: 1 });
+    expect(report.counts["agreement additions"]).toMatchObject({ read: 7, written: 4, skipped: 3 });
     const ag = async (id: number) =>
       (
         await target.query(
@@ -759,6 +762,9 @@ suite("import (integration)", () => {
     const a303 = await ag(303);
     expect(a303).toMatchObject({ bill_cycle: "monthly" });
     expect(d(a303.start_date)).toBe("2025-03-01"); // bill start used
+    // The sync date is not a cancel date: a line's cancel date, else the start date, stands in.
+    expect(d((await ag(304)).cancelled_date)).toBe("2025-04-15");
+    expect(d((await ag(305)).cancelled_date)).toBe("2025-02-01");
     expect(await ag(302)).toBeUndefined();
     const ad = async (id: number) =>
       (await target.query("SELECT * FROM billing.agreement_addition WHERE id = $1", [id])).rows[0];
