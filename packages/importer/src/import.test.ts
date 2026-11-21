@@ -214,7 +214,8 @@ suite("import (integration)", () => {
         (901, 10, 77, 'ProjectTicket', 1, NULL, NULL, 2, 2, 'DoNotBill', 0, NULL, '2026-01-06'),
         (902, 10, NULL, 'ChargeCode', 2, '2026-01-06 08:00', '2026-01-06 07:00', 1, 1, 'NoCharge', 0, 'bad times', '2026-01-06'),
         (903, 10, 503, 'ServiceTicket', 1, NULL, NULL, 1, 1, 'Billable', 100, 'ticket was skipped', '2026-01-09'),
-        (904, 999, NULL, NULL, 1, NULL, NULL, 1, 1, 'Billable', 100, 'orphan company', '2026-01-09');
+        (904, 999, NULL, NULL, 1, NULL, NULL, 1, 1, 'Billable', 100, 'orphan company', '2026-01-09'),
+        (905, 10, 7001, 'ProjectTicket', 1, NULL, NULL, 1, 1, 'Billable', 100, 'project work', '2026-01-10');
 
       CREATE TABLE production.opportunities (id int PRIMARY KEY, name text, company_id int, stage_id int,
         stage_name text, status_name text, primary_sales_rep_id int, contact_id int, site_id int,
@@ -226,6 +227,14 @@ suite("import (integration)", () => {
       CREATE TABLE production.project_phases (phase_id int PRIMARY KEY, project_id int, description text,
         parent_phase_id int, wbs_code text, bill_separately_flag boolean, billing_method text,
         scheduled_start date, scheduled_end date, budget_hours numeric, notes text);
+      CREATE TABLE production.project_tickets (id int PRIMARY KEY, project_id int, summary text, status text,
+        budget_hours numeric, actual_hours numeric, closed_flag boolean, date_entered date,
+        last_updated timestamp, synced_at timestamp);
+      INSERT INTO production.project_tickets VALUES
+        (7001, 100, 'Pull cable to MDF', 'New', 8, 7.5, false, NULL, '2026-01-08 09:00', NULL),
+        (7002, 100, 'Mount cameras', '*CLOSED', 4, 4, true, NULL, '2026-01-20 15:30', NULL),
+        (7003, 108, 'Under a skipped project', 'New', NULL, NULL, false, NULL, NULL, NULL),
+        (7004, 101, '   ', 'New', NULL, NULL, false, NULL, NULL, NULL);
       INSERT INTO production.opportunities VALUES
         (1, 'Open lead', 10, 3, '3. Contact Made', 'Open - New Lead', 1, 200, 7, '2026-03-01', '2026-01-10', NULL, '2026-01-11 12:00', 5000, 'Referral', NULL, 'call back'),
         (2, 'Won job', 10, 8, '7. Ready for Proposal', 'Won', 1, NULL, NULL, NULL, '2025-11-01', '2026-02-01', '2026-02-02 09:00', 12000.50, NULL, 'Web', NULL),
@@ -287,11 +296,13 @@ suite("import (integration)", () => {
     expect(report.counts.members).toMatchObject({ read: 3, written: 2, skipped: 1 });
     expect(report.counts.companies).toMatchObject({ read: 5, written: 4, skipped: 1 });
     expect(report.counts.tickets).toMatchObject({ read: 4, written: 3, skipped: 1 });
-    expect(report.counts["time entries"]).toMatchObject({ read: 5, written: 3, skipped: 2 });
+    expect(report.counts["time entries"]).toMatchObject({ read: 6, written: 4, skipped: 2 });
 
     // Ticket numbers are the CW ids.
     const ids = (
-      await target.query<{ id: string }>("SELECT id FROM service.ticket ORDER BY id")
+      await target.query<{ id: string }>(
+        "SELECT id FROM service.ticket WHERE id < 7000 ORDER BY id",
+      )
     ).rows.map((r) => Number(r.id));
     expect(ids).toEqual([500, 501, 502]);
 
@@ -319,7 +330,7 @@ suite("import (integration)", () => {
     // Closed/default status inference.
     const st = (
       await target.query(
-        "SELECT name, is_closed, is_default FROM service.board_status ORDER BY name",
+        "SELECT name, is_closed, is_default FROM service.board_status WHERE legacy_cw_status_id IS NOT NULL ORDER BY name",
       )
     ).rows;
     expect(st).toEqual([
@@ -351,6 +362,7 @@ suite("import (integration)", () => {
       [900, "service_ticket", "billable"],
       [901, "project_ticket", "do_not_bill"],
       [902, "non_ticket", "no_charge"],
+      [905, "service_ticket", "billable"],
     ]);
     expect(te[2].started_at).toBeNull();
     expect(te.every((r) => r.status === "approved")).toBe(true);
@@ -498,8 +510,8 @@ suite("import (integration)", () => {
     expect(report.counts["ticket notes"]).toMatchObject({ read: 6, written: 4, skipped: 2 });
 
     // Reconciliation compares the whole source to what landed (skipped rows show as differences).
-    expect(reconciliation.tickets).toEqual({ source: 4, target: 3 });
-    expect(reconciliation.timeEntries).toEqual({ source: 5, target: 3 });
+    expect(reconciliation.tickets).toEqual({ source: 8, target: 5 }); // service + project tickets
+    expect(reconciliation.timeEntries).toEqual({ source: 6, target: 4 });
 
     // New native records continue the CW numbering, past skipped records too.
     const next = await target.query<{ id: string }>(
@@ -508,8 +520,8 @@ suite("import (integration)", () => {
         WHERE c.legacy_cw_company_id = 10 AND s.board_id = b.id AND s.is_default AND p.legacy_cw_priority_id = 20
         RETURNING id`,
     );
-    // CW ticket 503 was skipped, but its number is still reserved.
-    expect(Number(next.rows[0]?.id)).toBe(504);
+    // Skipped CW tickets keep their numbers reserved, and so do project tickets (CW shares one number space).
+    expect(Number(next.rows[0]?.id)).toBe(7005);
   });
 
   it("imports stages, opportunities, projects and phases with the rules in docs/11", async () => {
@@ -660,6 +672,49 @@ suite("import (integration)", () => {
        SELECT id, 'native' FROM crm.company WHERE legacy_cw_company_id = 10 RETURNING id`,
     );
     expect(Number(nextProject.rows[0]?.id)).toBe(109);
+  });
+
+  it("imports project tickets as tickets on a project board and re-points their time entries", async () => {
+    const { report } = await run();
+    expect(report.counts["project tickets"]).toMatchObject({ read: 4, written: 2, skipped: 2 });
+    const t = async (id: number) =>
+      (
+        await target.query(
+          `SELECT t.*, b.name AS board, s.name AS status, s.is_closed
+             FROM service.ticket t JOIN service.board b ON b.id = t.board_id
+             JOIN service.board_status s ON s.id = t.status_id WHERE t.id = $1`,
+          [id],
+        )
+      ).rows[0];
+    expect(await t(7001)).toMatchObject({
+      board: "Project Tickets",
+      status: "New",
+      is_closed: false,
+      project_id: "100",
+      phase_id: null,
+      summary: "Pull cable to MDF",
+    });
+    expect(Number((await t(7001)).budget_hours)).toBe(8);
+    expect((await t(7001)).closed_at).toBeNull();
+    // No entered date in the mirror: last updated (Indianapolis local, EST in January) stands in.
+    expect(new Date((await t(7001)).entered_at).toISOString()).toBe("2026-01-08T14:00:00.000Z");
+    expect(await t(7002)).toMatchObject({ status: "*CLOSED", is_closed: true });
+    expect((await t(7002)).closed_at).not.toBeNull();
+    expect(await t(7003)).toBeUndefined(); // project not imported
+    expect(await t(7004)).toBeUndefined(); // no summary
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM service.board_status WHERE is_default AND board_id = (SELECT id FROM service.board WHERE name = 'Project Tickets')",
+      ),
+    ).toBe(1);
+    // Time charged to the project ticket now charges the ticket itself.
+    const te = (
+      await target.query(
+        "SELECT charge_type, ticket_id, project_ticket_id FROM timekeeping.time_entry WHERE legacy_cw_time_entry_id = 905",
+      )
+    ).rows[0];
+    expect(te).toMatchObject({ charge_type: "service_ticket", project_ticket_id: null });
+    expect(Number(te.ticket_id)).toBe(7001);
   });
 
   it("sales and project import is idempotent and follows source changes", async () => {

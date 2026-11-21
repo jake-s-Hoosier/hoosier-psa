@@ -6,10 +6,15 @@ the first production release.
 ## [Unreleased]
 
 ### Fixed
+- Importer, found by the first dry run against the real mirror: starter priorities and the Email source are adopted
+  instead of duplicated; duplicate status and ticket-type names on a board are renamed; ticket assignees match by full
+  name (integration members that hold a full name in the first-name field are ignored).
 - Date-only values (agreement dates, invoice dates, pay-period dates) showed one day early in US time zones; they are
   now formatted as calendar days.
 
 ### Added
+- Importer: CW project tickets import as tickets on a Project Tickets board pointing at their project, and time entries
+  that charged them follow.
 - Importer: sales stages, opportunities, projects and project phases from the ConnectWise mirror, with ids preserved,
   won/lost taken from the CW opportunity status, numbered project statuses mapped, phases ordered by WBS code, and
   every open fixed-fee project listed because the warehouse has no fee amount. Re-runnable; the reconciliation now

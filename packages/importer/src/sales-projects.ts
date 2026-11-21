@@ -34,11 +34,13 @@ export async function importSalesAndProjects(
   db: pg.PoolClient,
   report: ImportReport,
   ctx: SalesProjectsContext,
-): Promise<void> {
+): Promise<{ projectTicketIds: Set<number> }> {
   const stageIds = await importStages(src, db, report);
   await importOpportunities(src, db, report, ctx, stageIds);
   const projects = await importProjects(src, db, report, ctx);
   await importPhases(src, db, report, projects);
+  const projectTicketIds = await importProjectTickets(src, db, report, ctx, projects);
+  return { projectTicketIds };
 }
 
 interface StageIds {
@@ -443,4 +445,136 @@ async function importPhases(
       c.written += 1;
     }
   }
+}
+
+/**
+ * CW keeps project tickets in their own table (no company, phase or assignee of their own). Here project work
+ * is done on ordinary tickets that point at a project, so each becomes a ticket on a "Project Tickets" board
+ * with the CW ticket number preserved (CW ticket numbers are shared across both tables). Time entries that
+ * charged a project ticket are re-pointed at the ticket by the time-entry step.
+ */
+async function importProjectTickets(
+  src: pg.Pool,
+  db: pg.PoolClient,
+  report: ImportReport,
+  ctx: SalesProjectsContext,
+  projects: Set<number>,
+): Promise<Set<number>> {
+  const imported = new Set<number>();
+  const { rows } = await src.query<{
+    id: number;
+    project_id: number | null;
+    company_id: number | null;
+    summary: string | null;
+    status: string | null;
+    budget_hours: string | null;
+    closed_flag: boolean | null;
+    date_entered: string | null;
+    last_updated: Date | null;
+  }>(
+    `SELECT t.id, t.project_id, p.company_id, t.summary, t.status, t.budget_hours, t.closed_flag,
+            t.date_entered::text AS date_entered, t.last_updated
+       FROM production.project_tickets t LEFT JOIN production.projects p ON p.id = t.project_id
+      ORDER BY t.id`,
+  );
+  if (rows.length === 0) return imported;
+
+  const board = await db.query<{ id: string }>(
+    `INSERT INTO service.board (name, description)
+     VALUES ('Project Tickets', 'Tickets imported from ConnectWise project tickets')
+     ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+  );
+  const boardId = Number(board.rows[0]?.id);
+  const statusIds = new Map<string, Id>();
+  const names = new Map<string, boolean>();
+  for (const r of rows) {
+    const name = clean(r.status) ?? "Unknown";
+    names.set(name, (names.get(name) ?? true) && r.closed_flag === true);
+  }
+  let order = 10;
+  for (const [name, closed] of [...names.entries()].sort()) {
+    const out = await db.query<{ id: string }>(
+      `INSERT INTO service.board_status (board_id, name, sort_order, is_closed)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (board_id, name) DO UPDATE SET is_closed = EXCLUDED.is_closed RETURNING id`,
+      [boardId, name, order, closed],
+    );
+    statusIds.set(name, Number(out.rows[0]?.id));
+    order += 10;
+  }
+  await db.query(
+    `UPDATE service.board_status bs SET is_default = true
+      WHERE bs.id = (SELECT s.id FROM service.board_status s
+                      WHERE s.board_id = $1 AND NOT s.is_closed
+                      ORDER BY (s.name ILIKE 'new%') DESC, s.sort_order LIMIT 1)
+        AND NOT EXISTS (SELECT 1 FROM service.board_status d WHERE d.board_id = $1 AND d.is_default)`,
+    [boardId],
+  );
+  const prio = await db.query<{ id: string }>(
+    `SELECT id FROM service.priority
+      ORDER BY (name ILIKE '%normal%' OR name ILIKE '%medium%') DESC, sort_order LIMIT 1`,
+  );
+  const priorityId = prio.rows[0] ? Number(prio.rows[0].id) : null;
+  if (priorityId === null) {
+    report.except(
+      "project tickets",
+      "*",
+      "no ticket priority exists; project tickets not imported",
+    );
+    return imported;
+  }
+
+  const c = report.count("project tickets");
+  for (const r of rows) {
+    c.read += 1;
+    const companyId = r.company_id === null ? undefined : ctx.companies.get(r.company_id);
+    const summary = clean(r.summary);
+    if (r.project_id === null || !projects.has(r.project_id) || !companyId || !summary) {
+      c.skipped += 1;
+      report.except(
+        "project tickets",
+        r.id,
+        "skipped: project or company not imported, or no summary",
+      );
+      continue;
+    }
+    const closed = r.closed_flag === true;
+    // The mirror has no entered or closed dates for project tickets: last updated stands in for both.
+    report.tally("project tickets", "no entered date; last updated used");
+    await db.query(
+      `INSERT INTO service.ticket
+         (id, summary, company_id, board_id, status_id, priority_id, project_id, budget_hours,
+          entered_at, closed_at, legacy_cw_ticket_id)
+       OVERRIDING SYSTEM VALUE
+       VALUES ($1::int,$2,$3,$4,$5,$6,$7,$8,
+               COALESCE(($9::timestamp AT TIME ZONE '${OPERATING_TZ}'), now()),
+               CASE WHEN $10 THEN COALESCE(($9::timestamp AT TIME ZONE '${OPERATING_TZ}'), now()) END,
+               $1::int)
+       ON CONFLICT (id) DO UPDATE
+         SET summary = EXCLUDED.summary, company_id = EXCLUDED.company_id, board_id = EXCLUDED.board_id,
+             status_id = EXCLUDED.status_id, project_id = EXCLUDED.project_id,
+             budget_hours = EXCLUDED.budget_hours, entered_at = EXCLUDED.entered_at,
+             closed_at = EXCLUDED.closed_at`,
+      [
+        r.id,
+        summary.slice(0, 500),
+        companyId,
+        boardId,
+        statusIds.get(clean(r.status) ?? "Unknown"),
+        priorityId,
+        r.project_id,
+        num(r.budget_hours),
+        r.last_updated,
+        closed,
+      ],
+    );
+    imported.add(r.id);
+    c.written += 1;
+  }
+  report.except(
+    "project tickets",
+    "*",
+    "phase, assignee and billing scope are not in the mirror; phases must be set by hand",
+  );
+  return imported;
 }

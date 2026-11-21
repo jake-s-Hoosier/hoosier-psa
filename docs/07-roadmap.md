@@ -50,7 +50,7 @@ differences; QuickBooks receives and matches invoices with no manual fixes.
 - Opportunities, stages, activities and external quote/design links: built (slice A).
 - Sales orders from opportunities (fixed fee or time and materials), billing milestones, order-to-project conversion: built (slice B).
 - Quotes come from Smart Pricing Tables and estimates and designs from SembleAI, mirrored through `sales.external_ref`; adapters are built after the 14-day trial starting 2026-11-30 and once API documentation is available.
-- ConnectWise importer for sales stages, opportunities, projects and phases: built and tested against a miniature warehouse (idempotent, dry-run capable, never writes to production). Next: a dry run against the real mirror, and project tickets.
+- ConnectWise importer for sales stages, opportunities, projects and phases: built and tested against a miniature warehouse (idempotent, dry-run capable, never writes to production). Project tickets import as tickets on a Project Tickets board. A dry run against the real mirror (into a shadow database) completes; its exception report is in the project notes.
 - Purchase orders and receiving: built. A PO can point at a project, sales order and/or ticket; receipts are recorded per line with serial numbers and cannot exceed the order; vendor cost received and on order shows beside project margin. Still to come: vendor bills and cost matching in QuickBooks, and automated distributor price updates into the catalog.
 
 ## M5. Payments and portal (about 6 weeks)

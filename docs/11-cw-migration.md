@@ -63,8 +63,11 @@ happens in dev or in clearly marked test records that the nightly re-import remo
   before the project is billed. Closed history does not need it.
 - The warehouse project-to-opportunity link is not kept: a project has no opportunity column in the PSA (the link
   lives on the sales order that created it). Imported history is joined by customer and date if needed.
-- Project tickets (`project_tickets`) are not imported yet, so project time entries keep their ticket reference but
-  project tickets do not appear until that step is built.
+- Project tickets (`project_tickets`) become ordinary tickets on a "Project Tickets" board, pointing at their project,
+  with the CW ticket number preserved (the two CW tables share one number space). The mirror has no company, phase,
+  assignee or dates for them: the company comes from the project, the phase and owner stay empty, and last updated
+  stands in for the entered date (and the closed date when the ticket is closed). Time entries that charged a project
+  ticket charge the imported ticket instead.
 - Time entries and tickets referencing deleted or merged companies, contacts and members.
 
 ## Reconciliation reports (built alongside each module)

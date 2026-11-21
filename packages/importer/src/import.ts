@@ -85,8 +85,14 @@ export async function runImport(opts: ImportOptions): Promise<ImportResult> {
       contacts,
     });
     await importTicketNotes(source, client, report, { members, tickets });
-    await importTimeEntries(source, client, report, { members, companies });
-    await importSalesAndProjects(source, client, report, { members, companies, sites, contacts });
+    // Projects (and their tickets) come first so time entries can point at project tickets.
+    const { projectTicketIds } = await importSalesAndProjects(source, client, report, {
+      members,
+      companies,
+      sites,
+      contacts,
+    });
+    await importTimeEntries(source, client, report, { members, companies, projectTicketIds });
     await resetSequences(source, client);
     const reconciliation = await reconcile(source, client);
 
@@ -1106,7 +1112,7 @@ async function importTimeEntries(
   src: pg.Pool,
   db: pg.PoolClient,
   report: ImportReport,
-  ctx: { members: Maps; companies: Map<number, Id> },
+  ctx: { members: Maps; companies: Map<number, Id>; projectTicketIds: Set<number> },
 ): Promise<void> {
   // The mirror has no work role or work type per entry, but ours requires them: use placeholders.
   const role = await db.query<{ id: string }>(
@@ -1168,8 +1174,15 @@ async function importTimeEntries(
       chargeType = "service_ticket";
       ticketId = r.charge_to_id;
     } else if (r.charge_to_type === "ProjectTicket" && r.charge_to_id !== null) {
-      chargeType = "project_ticket";
-      projectTicketId = r.charge_to_id;
+      if (ctx.projectTicketIds.has(r.charge_to_id)) {
+        // Project work is done on ordinary tickets here, so the entry charges the imported ticket.
+        chargeType = "service_ticket";
+        ticketId = r.charge_to_id;
+      } else {
+        chargeType = "project_ticket";
+        projectTicketId = r.charge_to_id;
+        report.tally("time entries", "project ticket not imported; reference kept as a loose id");
+      }
     }
     let start = r.time_start;
     let end = r.time_end;
@@ -1246,7 +1259,8 @@ async function resetSequences(src: pg.Pool, db: pg.PoolClient): Promise<void> {
     projects: string;
     phases: string;
   }>(
-    `SELECT (SELECT COALESCE(max(id), 0) FROM production.service_tickets) AS tickets,
+    `SELECT GREATEST((SELECT COALESCE(max(id), 0) FROM production.service_tickets),
+                     (SELECT COALESCE(max(id), 0) FROM production.project_tickets)) AS tickets,
             (SELECT COALESCE(max(id), 0) FROM production.time_entries) AS time_entries,
             (SELECT COALESCE(max(id), 0) FROM production.opportunities) AS opportunities,
             (SELECT COALESCE(max(id), 0) FROM production.projects) AS projects,
@@ -1281,7 +1295,8 @@ async function reconcile(src: pg.Pool, db: pg.PoolClient): Promise<Reconciliatio
     `SELECT (SELECT count(*) FROM production.opportunities) AS opps,
             (SELECT count(*) FROM production.projects) AS projects,
             (SELECT count(*) FROM production.project_phases) AS phases,
-            (SELECT count(*) FROM production.service_tickets) AS tickets,
+            ((SELECT count(*) FROM production.service_tickets)
+             + (SELECT count(*) FROM production.project_tickets)) AS tickets,
             (SELECT count(*) FROM production.time_entries) AS te,
             (SELECT COALESCE(sum(actual_hours), 0) FROM production.time_entries) AS hours`,
   );
