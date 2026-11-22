@@ -69,10 +69,10 @@ const SELECT_AGREEMENT = `
          a.bill_cycle, to_char(a.bill_start_date, 'YYYY-MM-DD') AS bill_start_date,
          a.coverage, a.block_hours, a.po_number, a.notes,
          COALESCE((SELECT sum(round(x.quantity * x.unit_price, 2)) FROM billing.agreement_addition x
-                    WHERE x.agreement_id = a.id AND x.effective_from <= $1::date
+                    WHERE x.agreement_id = a.id AND NOT x.already_billed AND x.effective_from <= $1::date
                       AND (x.effective_to IS NULL OR x.effective_to >= $1::date)), 0)::text AS rmr,
          COALESCE((SELECT sum(round(x.quantity * x.unit_cost, 2)) FROM billing.agreement_addition x
-                    WHERE x.agreement_id = a.id AND x.effective_from <= $1::date
+                    WHERE x.agreement_id = a.id AND NOT x.already_billed AND x.effective_from <= $1::date
                       AND (x.effective_to IS NULL OR x.effective_to >= $1::date)), 0)::text AS monthly_cost
     FROM billing.agreement a
     JOIN crm.company c ON c.id = a.company_id

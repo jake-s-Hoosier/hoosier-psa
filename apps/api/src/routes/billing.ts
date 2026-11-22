@@ -351,7 +351,7 @@ async function planAgreementRun(
             p.is_taxable,
             false AS billed
        FROM billing.agreement_addition ad LEFT JOIN catalog.product p ON p.id = ad.product_id
-      WHERE ad.agreement_id = ANY($1::bigint[])
+      WHERE ad.agreement_id = ANY($1::bigint[]) AND NOT ad.already_billed
       ORDER BY ad.agreement_id, ad.description, ad.id`,
     [ids],
   );

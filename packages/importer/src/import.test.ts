@@ -739,12 +739,12 @@ suite("import (integration)", () => {
 
   it("imports agreements and additions, pricing per month, ending lines with their agreement", async () => {
     const { report } = await run();
-    expect(report.counts["agreements"]).toMatchObject({ read: 6, written: 5, skipped: 1 });
+    expect(report.counts.agreements).toMatchObject({ read: 6, written: 5, skipped: 1 });
     expect(report.counts["agreement additions"]).toMatchObject({ read: 7, written: 4, skipped: 3 });
     const ag = async (id: number) =>
       (
         await target.query(
-          `SELECT a.*, t.name AS type FROM billing.agreement a JOIN billing.agreement_type t ON t.id = a.type_id WHERE a.id = $1`,
+          "SELECT a.*, t.name AS type FROM billing.agreement a JOIN billing.agreement_type t ON t.id = a.type_id WHERE a.id = $1",
           [id],
         )
       ).rows[0];
@@ -778,6 +778,10 @@ suite("import (integration)", () => {
     expect(a401.prorate).toBe(true);
     expect(d(a401.effective_to)).toBe("2025-06-30"); // ends with its cancelled agreement
     expect(d((await ad(404)).effective_to)).toBe("2025-09-09"); // Inactive: last update
+    // No bill cycle in CW means billed up front: kept, full price, flagged so it is not counted monthly.
+    expect(await ad(404)).toMatchObject({ already_billed: true });
+    expect(Number((await ad(404)).unit_price)).toBe(25);
+    expect(a400.already_billed).toBe(false);
     for (const id of [402, 403, 405]) expect(await ad(id)).toBeUndefined();
     // A changed source price flows through on a re-run (the history guard is lifted for the import only).
     await srcAdmin.query(

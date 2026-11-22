@@ -73,6 +73,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
          JOIN crm.company c ON c.id = a.company_id
          JOIN billing.agreement_addition x ON x.agreement_id = a.id
               AND x.effective_from <= $1::date AND (x.effective_to IS NULL OR x.effective_to >= $1::date)
+              AND NOT x.already_billed
          LEFT JOIN crm.company v ON v.id = x.vendor_company_id
         WHERE ${ACTIVE_AGREEMENT}
         ORDER BY a.id, x.id`,
@@ -88,7 +89,7 @@ export const reportRoutes: FastifyPluginAsync = async (app) => {
          FROM billing.agreement a JOIN crm.company c ON c.id = a.company_id
         WHERE ${ACTIVE_AGREEMENT}
           AND NOT EXISTS (SELECT 1 FROM billing.agreement_addition x
-                           WHERE x.agreement_id = a.id AND x.effective_from <= $1::date
+                           WHERE x.agreement_id = a.id AND NOT x.already_billed AND x.effective_from <= $1::date
                              AND (x.effective_to IS NULL OR x.effective_to >= $1::date))
         ORDER BY a.id`,
       [asOf],

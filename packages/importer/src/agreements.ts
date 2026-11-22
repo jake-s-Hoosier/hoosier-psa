@@ -35,7 +35,7 @@ async function importTypes(
   report: ImportReport,
 ): Promise<Map<number, Id>> {
   const { rows } = await src.query<{ type_id: number; type_name: string | null }>(
-    `SELECT DISTINCT type_id, type_name FROM production.agreements WHERE type_id IS NOT NULL ORDER BY type_id`,
+    "SELECT DISTINCT type_id, type_name FROM production.agreements WHERE type_id IS NOT NULL ORDER BY type_id",
   );
   const out = new Map<number, Id>();
   const c = report.count("agreement types");
@@ -68,6 +68,8 @@ interface ImportedAgreement {
   cancelledDate: string | null;
   endDate: string | null;
   startDate: string;
+  /** No bill cycle in CW (or one-time / not billed): lines were billed up front, not monthly. */
+  prepaid: boolean;
 }
 
 async function importAgreementRows(
@@ -188,7 +190,9 @@ async function importAgreementRows(
         billStart,
       ],
     );
-    out.set(a.id, { cycle, cancelledDate, endDate, startDate: startRaw });
+    const cycleName = (a.bill_cycle_name ?? "").trim().toLowerCase();
+    const prepaid = cycleName === "" || cycleName === "one-time" || cycleName === "not billed";
+    out.set(a.id, { cycle, cancelledDate, endDate, startDate: startRaw, prepaid });
     c.written += 1;
   }
   return out;
@@ -282,26 +286,32 @@ async function importAdditions(
       await db.query(
         `INSERT INTO billing.agreement_addition
            (id, agreement_id, description, quantity, unit_price, unit_cost, effective_from, effective_to,
-            prorate, legacy_cw_addition_id)
+            prorate, already_billed, legacy_cw_addition_id)
          OVERRIDING SYSTEM VALUE
-         VALUES ($1::int,$2::int,$3,$4,$5,$6,$7::date,$8::date,$9,$1::int)
+         VALUES ($1::int,$2::int,$3,$4,$5,$6,$7::date,$8::date,$9,$10,$1::int)
          ON CONFLICT (id) DO UPDATE
            SET agreement_id = EXCLUDED.agreement_id, description = EXCLUDED.description,
                quantity = EXCLUDED.quantity, unit_price = EXCLUDED.unit_price, unit_cost = EXCLUDED.unit_cost,
                effective_from = EXCLUDED.effective_from, effective_to = EXCLUDED.effective_to,
-               prorate = EXCLUDED.prorate`,
+               prorate = EXCLUDED.prorate, already_billed = EXCLUDED.already_billed`,
         [
           d.id,
           d.agreement_id,
           description.slice(0, 500),
           qty,
-          perMonth(price, ag.cycle),
-          perMonth(cost, ag.cycle),
+          ag.prepaid ? price : perMonth(price, ag.cycle),
+          ag.prepaid ? cost : perMonth(cost, ag.cycle),
           from,
           to,
           d.prorate === true,
+          ag.prepaid,
         ],
       );
+      if (ag.prepaid)
+        report.tally(
+          "agreement additions",
+          "no bill cycle in CW (prepaid or one-time); marked already billed, so left out of monthly totals and billing runs; price is the full amount",
+        );
       if (cycleMonths(ag.cycle) > 1)
         report.tally(
           "agreement additions",
