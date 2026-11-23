@@ -380,14 +380,16 @@ suite("import (integration)", () => {
     // Naive warehouse timestamps are read as Indianapolis local time (EST = UTC-5 in January).
     expect(new Date(t500.entered_at).toISOString()).toBe("2026-01-05T14:00:00.000Z");
 
-    // Billing methods map; ticket closed before entered keeps its other data but drops the close date.
+    // Billing methods map; ticket closed before entered keeps its other data and closes at the entered time.
     expect(
       (await target.query("SELECT billing_method, closed_at FROM service.ticket WHERE id = 501"))
         .rows[0].billing_method,
     ).toBe("fixed_fee");
-    expect(
-      (await target.query("SELECT closed_at FROM service.ticket WHERE id = 502")).rows[0].closed_at,
-    ).toBeNull();
+    const t502 = (
+      await target.query("SELECT entered_at, closed_at FROM service.ticket WHERE id = 502")
+    ).rows[0];
+    expect(t502.closed_at).not.toBeNull();
+    expect(new Date(t502.closed_at).getTime()).toBe(new Date(t502.entered_at).getTime());
 
     // Closed/default status inference.
     const st = (

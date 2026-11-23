@@ -1056,8 +1056,9 @@ async function importTickets(
     }
     let closed = r.closed_flag ? r.date_closed : null;
     if (closed && entered && closed < entered) {
-      report.except("tickets", r.id, "closed before entered; closed date dropped");
-      closed = null;
+      // Dropping the date would leave a closed ticket looking open, so it closes the moment it was entered.
+      report.except("tickets", r.id, "closed before entered; closed date set to the entered date");
+      closed = entered;
     }
     const assignedKey = clean(r.assigned_to)?.toLowerCase();
     const owner = assignedKey
