@@ -859,9 +859,17 @@ async function importTicketLookups(
     closed: boolean;
     inactive: boolean;
   }>(
-    `SELECT status_id AS id, status_name AS name, board_id, COALESCE(sort_order, status_id) AS sort_order,
-            COALESCE(closed_status_flag, false) AS closed, COALESCE(inactive_flag, false) AS inactive
-       FROM production.board_statuses WHERE status_name IS NOT NULL
+    // CW's closed_status_flag is false for most closed statuses in the mirror (even "Closed"), so a status
+    // also counts as closed when every ticket in it is closed.
+    `SELECT bs.status_id AS id, bs.status_name AS name, bs.board_id,
+            COALESCE(bs.sort_order, bs.status_id) AS sort_order,
+            (COALESCE(bs.closed_status_flag, false) OR COALESCE(tc.all_closed, false)) AS closed,
+            COALESCE(bs.inactive_flag, false) AS inactive
+       FROM production.board_statuses bs
+       LEFT JOIN (SELECT status_id, bool_and(COALESCE(closed_flag, false)) AS all_closed
+                    FROM production.service_tickets WHERE status_id IS NOT NULL GROUP BY status_id) tc
+              ON tc.status_id = bs.status_id
+      WHERE bs.status_name IS NOT NULL
      UNION ALL
      SELECT status_id, min(status_name), min(board_id), status_id,
             bool_and(COALESCE(closed_flag, false)), false

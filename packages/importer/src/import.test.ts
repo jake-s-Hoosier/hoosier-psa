@@ -194,7 +194,8 @@ suite("import (integration)", () => {
 
       INSERT INTO production.boards VALUES (1, 'Service Desk');
       INSERT INTO production.priorities VALUES (20, 'Priority 2 - High', '#ea580c', 2), (21, 'Priority 3 - Medium', 'bad', 3);
-      INSERT INTO production.board_statuses VALUES (100, 1, 'New', 1, false, false), (101, 1, 'Closed', 9, true, false);
+      -- CW's closed_status_flag is unreliable: 'Closed' is flagged open here but all its tickets are closed
+      INSERT INTO production.board_statuses VALUES (100, 1, 'New', 1, false, false), (101, 1, 'Closed', 9, false, false);
       INSERT INTO production.work_roles VALUES (1, 'Technician', 115, false), (2, 'Senior Tech', 147, false);
       INSERT INTO production.work_types VALUES
         (1, 'Onsite - Service', 'Billable', 'Custom', 147, 1, 0, NULL, false),
