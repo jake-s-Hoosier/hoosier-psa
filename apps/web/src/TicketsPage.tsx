@@ -56,6 +56,8 @@ export function TicketsPage({
   const [query, setQuery] = useState("");
   const [state, setState] = useState<"open" | "closed" | "all">("open");
   const [boardId, setBoardId] = useState<number | undefined>();
+  // Project tickets live under their project; they stay out of this list unless asked for.
+  const [withProjectTickets, setWithProjectTickets] = useState(false);
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [filterLabel, setFilterLabel] = useState<string | null>(null);
@@ -82,7 +84,10 @@ export function TicketsPage({
     const controller = new AbortController();
     setLoad({ state: "loading" });
     const timer = setTimeout(() => {
-      listTickets({ q: query, state, boardId, ...filters }, controller.signal)
+      listTickets(
+        { q: query, state, boardId, excludeProjectTickets: !withProjectTickets, ...filters },
+        controller.signal,
+      )
         .then((r) => setLoad({ state: "ready", items: r.items, total: r.total }))
         .catch((err: unknown) => {
           if (!controller.signal.aborted) setLoad({ state: "error", message: msg(err) });
@@ -92,7 +97,7 @@ export function TicketsPage({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query, state, boardId, reload, filterKey]);
+  }, [query, state, boardId, withProjectTickets, reload, filterKey]);
 
   // The address decides which ticket is open, so links from other screens land on the right one.
   // biome-ignore lint/correctness/useExhaustiveDependencies: only the address should trigger a fetch
@@ -192,6 +197,14 @@ export function TicketsPage({
                 </option>
               ))}
             </select>
+            <label className="inline-check">
+              <input
+                type="checkbox"
+                checked={withProjectTickets}
+                onChange={(e) => setWithProjectTickets(e.target.checked)}
+              />{" "}
+              Include project tickets
+            </label>
           </div>
           {load.state === "loading" && <div className="state">Loading…</div>}
           {load.state === "error" && (

@@ -252,6 +252,8 @@ export const ticketListQuerySchema = paginationSchema.extend({
   ownerMemberId: idSchema.optional(),
   /** open = not closed (default), closed, all */
   state: z.enum(["open", "closed", "all"]).default("open"),
+  /** Tickets that belong to a project: include (default), exclude them, or only them. */
+  projectTickets: z.enum(["include", "exclude", "only"]).default("include"),
 });
 export type TicketListQuery = z.infer<typeof ticketListQuerySchema>;
 

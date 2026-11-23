@@ -170,6 +170,8 @@ export const ticketRoutes: FastifyPluginAsync = async (app) => {
     if (q.siteId) add("t.site_id = ?", q.siteId);
     if (q.contactId) add("t.contact_id = ?", q.contactId);
     if (q.boardId) add("t.board_id = ?", q.boardId);
+    if (q.projectTickets === "exclude") where.push("t.project_id IS NULL");
+    if (q.projectTickets === "only") where.push("t.project_id IS NOT NULL");
     if (q.statusId) add("t.status_id = ?", q.statusId);
     if (q.ownerMemberId) add("t.owner_member_id = ?", q.ownerMemberId);
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

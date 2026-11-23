@@ -177,12 +177,15 @@ export function listTickets(
     companyId?: number;
     siteId?: number;
     contactId?: number;
+    /** Leave project tickets out; they are listed under their project. */
+    excludeProjectTickets?: boolean;
   },
   signal?: AbortSignal,
 ): Promise<ListResponse<Ticket>> {
   const params = new URLSearchParams({ limit: "100", state: p.state });
   if (p.q.trim()) params.set("q", p.q.trim());
   if (p.boardId) params.set("boardId", String(p.boardId));
+  if (p.excludeProjectTickets) params.set("projectTickets", "exclude");
   if (p.companyId) params.set("companyId", String(p.companyId));
   if (p.siteId) params.set("siteId", String(p.siteId));
   if (p.contactId) params.set("contactId", String(p.contactId));
