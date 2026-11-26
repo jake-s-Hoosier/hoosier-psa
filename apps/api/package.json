@@ -21,7 +21,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^26.6.6",
     "@types/pdfkit": "^0.17.7",
     "@types/pg": "^8.11.10",
     "tsx": "^4.19.2",
